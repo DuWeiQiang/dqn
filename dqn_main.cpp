@@ -6,9 +6,9 @@
 #include "prettyprint.hpp"
 #include "dqn.hpp"
 
-DEFINE_bool(gpu, false, "Use GPU to brew Caffe");
+DEFINE_bool(gpu, true, "Use GPU to brew Caffe");
 DEFINE_bool(gui, false, "Open a GUI window");
-DEFINE_string(rom, "breakout.bin", "Atari 2600 ROM to play");
+DEFINE_string(rom, "roms/breakout.bin", "Atari 2600 ROM to play");
 DEFINE_string(solver, "dqn_solver.prototxt", "Solver parameter file (*.prototxt)");
 DEFINE_int32(memory, 500000, "Capacity of replay memory");
 DEFINE_int32(explore, 1000000, "Number of iterations needed for epsilon to reach 0.1");
@@ -41,7 +41,7 @@ double PlayOneEpisode(
   std::deque<dqn::FrameDataSp> past_frames;
   auto total_score = 0.0;
   for (auto frame = 0; !ale.game_over(); ++frame) {
-    std::cout << "frame: " << frame << std::endl;
+    // std::cout << "frame: " << frame << std::endl;
     const auto current_frame = dqn::PreprocessScreen(ale.getScreen());
     if (FLAGS_show_frame) {
       std::cout << dqn::DrawFrame(*current_frame) << std::endl;
@@ -135,8 +135,9 @@ int main(int argc, char** argv) {
   }
 
   for (auto episode = 0;; episode++) {
-    std::cout << "episode: " << episode << std::endl;
     const auto epsilon = CalculateEpsilon(dqn.current_iteration());
+    std::cout << "Episode " << episode
+              << ", epsilon = " << epsilon << std::endl;
     PlayOneEpisode(ale, dqn, epsilon, true);
     if (dqn.current_iteration() % 10 == 0) {
       // After every 10 episodes, evaluate the current strength
@@ -145,4 +146,3 @@ int main(int argc, char** argv) {
     }
   }
 };
-

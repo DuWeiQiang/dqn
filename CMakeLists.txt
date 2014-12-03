@@ -1,9 +1,9 @@
 cmake_minimum_required (VERSION 2.6)
 project(dqn)
 
-option(CPU_ONLY "Use CPU only for Caffe" ON)
-option(USE_CUDNN "Use cuDNN for Caffe" OFF)
-option(USE_SDL "Use SDL for ALE" ON)
+option(CPU_ONLY "Use CPU only for Caffe" OFF)
+option(USE_CUDNN "Use cuDNN for Caffe" ON)
+option(USE_SDL "Use SDL for ALE" OFF)
 
 include_directories(~/projects/muupan_caffe/include)
 include_directories(~/projects/ale_0.4.4/ale_0_4/src)

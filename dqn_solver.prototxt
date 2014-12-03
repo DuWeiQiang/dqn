@@ -7,3 +7,5 @@ gamma: 0.1
 stepsize: 100000
 max_iter: 1000000
 display: 1000
+snapshot: 100000
+snapshot_prefix: "state/dqn"
