@@ -53,7 +53,8 @@ const std::array<int, 3> PixelToRGB(const pixel_t& pixel) {
   const auto r = rgb >> 16;
   const auto g = (rgb >> 8) & 0xFF;
   const auto b = rgb & 0xFF;
-  return {r, g, b};
+  std::array<int, 3> arr = {r, g, b};
+  return arr;
 }
 
 /**
