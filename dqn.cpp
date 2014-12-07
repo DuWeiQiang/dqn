@@ -288,7 +288,8 @@ void DQN::AddTransition(const Transition& transition) {
 }
 
 void DQN::Update() {
-  // std::cout << "iteration: " << current_iter_++ << std::endl;
+  // std::cout << "iteration: " << current_iter_ << std::endl;
+  current_iter_++;
 
   // Sample transitions from replay memory
   std::vector<int> transitions;
