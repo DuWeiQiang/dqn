@@ -8,8 +8,7 @@
 
 DEFINE_bool(gpu, true, "Use GPU to brew Caffe");
 DEFINE_bool(gui, false, "Open a GUI window");
-DEFINE_string(rom, "roms/breakout.bin", "Atari 2600 ROM to play");
-DEFINE_string(solver, "dqn_solver.prototxt", "Solver parameter file (*.prototxt)");
+DEFINE_string(rom, "roms/pong.bin", "Atari 2600 ROM to play");
 DEFINE_int32(memory, 500000, "Capacity of replay memory");
 DEFINE_int32(explore, 1000000, "Number of iterations needed for epsilon to reach 0.1");
 DEFINE_double(gamma, 0.95, "Discount factor of future rewards (0,1]");
@@ -21,6 +20,18 @@ DEFINE_string(model, "", "Model file to load");
 DEFINE_bool(evaluate, false, "Evaluation mode: only playing a game, no updates");
 DEFINE_double(evaluate_with_epsilon, 0.05, "Epsilon value to be used in evaluation mode");
 DEFINE_double(repeat_games, 1, "Number of games played in evaluation mode");
+// Solver Parameters
+DEFINE_string(solver, "", "Solver parameter file (*.prototxt)");
+DEFINE_string(net, "dqn.prototxt", "Network parameter file (*.prototxt)");
+DEFINE_double(momentum, 0.95, "Solver momentum");
+DEFINE_double(base_lr, 0.2, "Solver base learning rate");
+DEFINE_string(lr_policy, "step", "Solver lr policy");
+DEFINE_double(solver_gamma, 0.1, "Solver gamma");
+DEFINE_int32(stepsize, 1000000, "Solver stepsize");
+DEFINE_int32(max_iter, 2000000, "Maximum number of iterations");
+DEFINE_int32(snapshot, 100000, "Snapshot frequency in iterations");
+DEFINE_int32(display, 10000, "Display frequency in iterations");
+DEFINE_string(snapshot_prefix, "state/dqn", "Prefix for saving snapshots");
 
 double CalculateEpsilon(const int iter) {
   if (iter < FLAGS_explore) {
@@ -134,7 +145,27 @@ int main(int argc, char** argv) {
   // Get the vector of legal actions
   const auto legal_actions = ale.getMinimalActionSet();
 
-  dqn::DQN dqn(legal_actions, FLAGS_solver, FLAGS_memory, FLAGS_gamma);
+  // Construct the solver either from file or params
+  caffe::SolverParameter solver_param;
+  if (!FLAGS_solver.empty()) {
+    std::cout << "Loading solver from " << FLAGS_solver << std::endl;
+    caffe::ReadProtoFromTextFileOrDie(FLAGS_solver, &solver_param);
+  } else {
+    solver_param.set_net(FLAGS_net);
+    solver_param.set_solver_type(::caffe::SolverParameter_SolverType::
+                                 SolverParameter_SolverType_ADADELTA);
+    solver_param.set_momentum(FLAGS_momentum);
+    solver_param.set_base_lr(FLAGS_base_lr);
+    solver_param.set_lr_policy(FLAGS_lr_policy);
+    solver_param.set_gamma(FLAGS_solver_gamma);
+    solver_param.set_stepsize(FLAGS_stepsize);
+    solver_param.set_max_iter(FLAGS_max_iter);
+    solver_param.set_display(FLAGS_display);
+    solver_param.set_snapshot(FLAGS_snapshot);
+    solver_param.set_snapshot_prefix(FLAGS_snapshot_prefix);
+  }
+
+  dqn::DQN dqn(legal_actions, solver_param, FLAGS_memory, FLAGS_gamma);
   dqn.Initialize();
 
   if (!FLAGS_save_screen.empty()) {
@@ -160,7 +191,7 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  for (auto episode = 0;; episode++) {
+  for (auto episode = 0; dqn.current_iteration() < FLAGS_max_iter; episode++) {
     const auto epsilon = CalculateEpsilon(dqn.current_iteration());
     std::cout << "Episode " << episode
               << ", epsilon = " << epsilon << std::endl;

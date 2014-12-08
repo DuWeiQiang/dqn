@@ -40,7 +40,7 @@ class DQN {
 public:
   DQN(
       const ActionVect& legal_actions,
-      const std::string& solver_param,
+      const caffe::SolverParameter& solver_param,
       const int replay_memory_capacity,
       const double gamma) :
         legal_actions_(legal_actions),
@@ -93,7 +93,7 @@ private:
       const FilterLayerInputData& filter_data);
 
   const ActionVect legal_actions_;
-  const std::string solver_param_;
+  const caffe::SolverParameter solver_param_;
   const int replay_memory_capacity_;
   const double gamma_;
   int current_iter_;

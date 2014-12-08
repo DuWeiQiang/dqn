@@ -177,9 +177,7 @@ void DQN::LoadTrainedModel(const std::string& model_bin) {
 
 void DQN::Initialize() {
   // Initialize net and solver
-  caffe::SolverParameter solver_param;
-  caffe::ReadProtoFromTextFileOrDie(solver_param_, &solver_param);
-  solver_.reset(caffe::GetSolver<float>(solver_param));
+  solver_.reset(caffe::GetSolver<float>(solver_param_));
   net_ = solver_->net();
 
   // Cache pointers to blobs that hold Q values
