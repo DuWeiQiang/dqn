@@ -16,6 +16,7 @@ DEFINE_double(gamma, 0.95, "Discount factor of future rewards (0,1]");
 DEFINE_int32(memory_threshold, 100, "Enough amount of transitions to start learning");
 DEFINE_int32(skip_frame, 3, "Number of frames skipped");
 DEFINE_bool(show_frame, false, "Show the current frame in CUI");
+DEFINE_string(save_screen, "", "File prefix in to save frames");
 DEFINE_string(model, "", "Model file to load");
 DEFINE_bool(evaluate, false, "Evaluation mode: only playing a game, no updates");
 DEFINE_double(evaluate_with_epsilon, 0.05, "Epsilon value to be used in evaluation mode");
@@ -27,6 +28,20 @@ double CalculateEpsilon(const int iter) {
   } else {
     return 0.1;
   }
+}
+
+void SaveScreen(const ALEScreen& screen, const ALEInterface& ale,
+                const string filename) {
+  IntMatrix screen_matrix;
+  for (auto row = 0; row < screen.height(); row++) {
+    IntVect row_vec;
+    for (auto col = 0; col < screen.width(); col++) {
+      int pixel = screen.get(row, col);
+      row_vec.emplace_back(pixel);
+    }
+    screen_matrix.emplace_back(row_vec);
+  }
+  ale.theOSystem->p_export_screen->save_png(&screen_matrix, filename);
 }
 
 /**
@@ -42,9 +57,16 @@ double PlayOneEpisode(
   auto total_score = 0.0;
   for (auto frame = 0; !ale.game_over(); ++frame) {
     // std::cout << "frame: " << frame << std::endl;
-    const auto current_frame = dqn::PreprocessScreen(ale.getScreen());
+    const ALEScreen& screen = ale.getScreen();
+    const auto current_frame = dqn::PreprocessScreen(screen);
     if (FLAGS_show_frame) {
       std::cout << dqn::DrawFrame(*current_frame) << std::endl;
+    }
+    if (!FLAGS_save_screen.empty()) {
+      std::stringstream ss;
+      ss << FLAGS_save_screen << setfill('0') << setw(5) <<
+          std::to_string(frame) << ".png";
+      SaveScreen(screen, ale, ss.str());
     }
     past_frames.push_back(current_frame);
     if (past_frames.size() < dqn::kInputFrameCount) {
@@ -114,6 +136,10 @@ int main(int argc, char** argv) {
 
   dqn::DQN dqn(legal_actions, FLAGS_solver, FLAGS_memory, FLAGS_gamma);
   dqn.Initialize();
+
+  if (!FLAGS_save_screen.empty()) {
+    std::cout << "Saving screens to: " << FLAGS_save_screen << std::endl;
+  }
 
   if (!FLAGS_model.empty()) {
     // Just evaluate the given trained model
