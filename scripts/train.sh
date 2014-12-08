@@ -10,5 +10,5 @@ EMAIL="mhauskn@cs.utexas.edu"
 ROM=$1
 ROM_NAME=`basename $ROM | head -c 4`
 
-echo cluster --gpu --email $EMAIL --outfile $ROM_NAME.out \
+cluster --gpu --email $EMAIL --outfile $ROM_NAME.out \
     dqn -gpu -rom $ROM -snapshot_prefix state/$ROM_NAME
