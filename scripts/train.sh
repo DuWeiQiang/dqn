@@ -8,7 +8,7 @@ fi
 
 EMAIL="mhauskn@cs.utexas.edu"
 ROM=$1
-ROM_NAME=`basename $ROM | head -c 4`
+ROM_NAME=`basename $ROM | awk -F'.bin' '{print $1}'`
 
 cluster --gpu --email $EMAIL --outfile $ROM_NAME.out \
     dqn -gpu -rom $ROM -snapshot_prefix state/$ROM_NAME
