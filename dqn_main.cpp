@@ -16,6 +16,7 @@ DEFINE_int32(memory_threshold, 100, "Enough amount of transitions to start learn
 DEFINE_int32(skip_frame, 3, "Number of frames skipped");
 DEFINE_bool(show_frame, false, "Show the current frame in CUI");
 DEFINE_string(save_screen, "", "File prefix in to save frames");
+DEFINE_string(save_binary_screen, "", "File prefix in to save binary frames");
 DEFINE_string(model, "", "Model file to load");
 DEFINE_bool(evaluate, false, "Evaluation mode: only playing a game, no updates");
 DEFINE_double(evaluate_with_epsilon, 0.05, "Epsilon value to be used in evaluation mode");
@@ -55,6 +56,18 @@ void SaveScreen(const ALEScreen& screen, const ALEInterface& ale,
   ale.theOSystem->p_export_screen->save_png(&screen_matrix, filename);
 }
 
+void SaveInputFrames(const dqn::InputFrames& frames, const string filename) {
+  std::ofstream ofs;
+  ofs.open(filename, ios::out | ios::binary);
+  for (int i = 0; i < dqn::kInputFrameCount; ++i) {
+    const dqn::FrameData& frame = *frames[i];
+    for (int j = 0; j < dqn::kCroppedFrameDataSize; ++j) {
+      ofs.write((char*) &frame[j], sizeof(uint8_t));
+    }
+  }
+  ofs.close();
+}
+
 /**
  * Play one episode and return the total score
  */
@@ -91,6 +104,12 @@ double PlayOneEpisode(
       }
       dqn::InputFrames input_frames;
       std::copy(past_frames.begin(), past_frames.end(), input_frames.begin());
+      if (!FLAGS_save_binary_screen.empty()) {
+        static int binary_save_num = 0;
+        string fname = FLAGS_save_binary_screen +
+            std::to_string(binary_save_num++) + ".bin";
+        SaveInputFrames(input_frames, fname);
+      }
       const auto action = dqn.SelectAction(input_frames, epsilon);
       auto immediate_score = 0.0;
       for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {

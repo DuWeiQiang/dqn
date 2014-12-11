@@ -9,6 +9,7 @@ fi
 ROM=$1
 MODEL=$2
 MOVIE=$3
+NET="dqn.prototxt"
 SCREEN_DIR="screens"
 FRAMERATE=25
 
@@ -18,7 +19,7 @@ mkdir -p $SCREEN_DIR
 
 echo "==> Evaluating $MODEL on $ROM"
 sleep .5
-./dqn -evaluate -rom $ROM -save_screen $SCREEN_DIR/ -model $MODEL
+./dqn -evaluate -rom $ROM -save_screen $SCREEN_DIR/ -model $MODEL -net $NET
 
 echo "==> Converting pngs into movie: $MOVIE"
 sleep .5
