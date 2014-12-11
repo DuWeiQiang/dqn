@@ -194,10 +194,10 @@ int main(int argc, char** argv) {
   if (!FLAGS_model.empty()) {
     // Just evaluate the given trained model
     std::cout << "Loading " << FLAGS_model << std::endl;
+    dqn.LoadTrainedModel(FLAGS_model);
   }
 
   if (FLAGS_evaluate) {
-    dqn.LoadTrainedModel(FLAGS_model);
     auto total_score = 0.0;
     for (auto i = 0; i < FLAGS_repeat_games; ++i) {
       std::cout << "game: " << i << std::endl;
