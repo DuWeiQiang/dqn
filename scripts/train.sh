@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
 if [ $# -lt 1 ]; then
@@ -20,20 +20,20 @@ then
     do
         iter=$(($iter + $TACC_ITER_PER_JOB))
         if [ -z "$PID" ]; then
-            PID=$(cluster --suppress --gpu --email $EMAIL \
-                --outfile ${ROM_NAME}$i.out dqn -gpu -rom $ROM \
-                -snapshot_prefix state/$ROM_NAME$i \
+            PID=$(cluster --suppress --gpu --outfile ${ROM_NAME}$i.out \
+                dqn -gpu -rom $ROM -snapshot_prefix state/$ROM_NAME$i \
                 -max_iter $TACC_ITER_PER_JOB)
         else
-            PID=$(cluster --depend $PID --suppress --gpu --email $EMAIL \
+            PID=$(cluster --depend $PID --suppress --gpu \
                 --outfile ${ROM_NAME}$i.out dqn -gpu -rom $ROM \
-                -model state/$ROM_NAME$(($i-1))_iter_${TACC_MAX_ITER_PER_JOB}.caffemodel \
+                -model state/$ROM_NAME$(($i-1))_iter_${TACC_ITER_PER_JOB}.caffemodel \
                 -snapshot_prefix state/$ROM_NAME$i \
                 -max_iter $TACC_ITER_PER_JOB)
         fi
         i=$(($i + 1))
         sleep .5
     done
+    cluster --suppress --depend $PID --email $EMAIL --gpu echo "$ROM_NAME Done!"
 else
     cluster --gpu --email $EMAIL --outfile $ROM_NAME.out \
         dqn -gpu -rom $ROM -snapshot_prefix state/$ROM_NAME
