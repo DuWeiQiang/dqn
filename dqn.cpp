@@ -78,10 +78,12 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
   assert(raw_screen_height > raw_screen_width);
   const auto raw_pixels = raw_screen.getArray();
   auto screen = std::make_shared<FrameData>();
-  const auto x_ratio = raw_screen_width / static_cast<double>(kCroppedFrameSize);
-  const auto y_ratio = raw_screen_height / static_cast<double>(kCroppedFrameSize);
-  for (auto i = 0; i < kCroppedFrameSize; ++i) {
-    for (auto j = 0; j < kCroppedFrameSize; ++j) {
+  const auto x_ratio = raw_screen_width /
+      static_cast<double>(kCroppedFrameWidth);
+  const auto y_ratio = raw_screen_height /
+      static_cast<double>(kCroppedFrameHeight);
+  for (auto i = 0; i < kCroppedFrameHeight; ++i) {
+    for (auto j = 0; j < kCroppedFrameWidth; ++j) {
       const auto first_x = static_cast<int>(std::floor(j * x_ratio));
       const auto last_x = static_cast<int>(std::floor((j + 1) * x_ratio));
       const auto first_y = static_cast<int>(std::floor(i * y_ratio));
@@ -96,9 +98,8 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
         } else if (x == last_x) {
           x_ratio_in_resulting_pixel = x_ratio * (j + 1) - x;
         }
-        assert(
-            x_ratio_in_resulting_pixel >= 0.0 &&
-            x_ratio_in_resulting_pixel <= 1.0);
+        assert(x_ratio_in_resulting_pixel >= 0.0 &&
+               x_ratio_in_resulting_pixel <= 1.0);
         for (auto y = first_y; y <= last_y; ++y) {
           double y_ratio_in_resulting_pixel = 1.0;
           if (y == first_y) {
@@ -106,9 +107,8 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
           } else if (y == last_y) {
             y_ratio_in_resulting_pixel = y_ratio * (i + 1) - y;
           }
-          assert(
-              y_ratio_in_resulting_pixel >= 0.0 &&
-              y_ratio_in_resulting_pixel <= 1.0);
+          assert(y_ratio_in_resulting_pixel >= 0.0 &&
+                 y_ratio_in_resulting_pixel <= 1.0);
           const auto grayscale =
               PixelToGrayscale(
                   raw_pixels[static_cast<int>(y * raw_screen_width + x)]);
@@ -117,7 +117,7 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
               (y_ratio_in_resulting_pixel / y_ratio) * grayscale;
         }
       }
-      (*screen)[i * kCroppedFrameSize + j] = resulting_color;
+      (*screen)[i * kCroppedFrameWidth + j] = resulting_color;
     }
   }
   return screen;
@@ -125,10 +125,10 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
 
 std::string DrawFrame(const FrameData& frame) {
   std::ostringstream o;
-  for (auto row = 0; row < kCroppedFrameSize; ++row) {
-    for (auto col = 0; col < kCroppedFrameSize; ++col) {
+  for (auto row = 0; row < kCroppedFrameHeight; ++row) {
+    for (auto col = 0; col < kCroppedFrameWidth; ++col) {
       o << std::hex <<
-          static_cast<int>(frame[row * kCroppedFrameSize + col] / 16);
+          static_cast<int>(frame[row * kCroppedFrameWidth + col] / 16);
     }
     o << std::endl;
   }
@@ -191,12 +191,11 @@ void DQN::Initialize() {
       boost::dynamic_pointer_cast<caffe::MemoryDataLayer<float>>(
           net_->layer_by_name("frames_input_layer"));
   assert(frames_input_layer_);
-  assert(HasBlobSize(
-      *net_->blob_by_name("frames"),
-      kMinibatchSize,
-      kInputFrameCount,
-      kCroppedFrameSize,
-      kCroppedFrameSize));
+  assert(HasBlobSize(*net_->blob_by_name("frames"),
+                     kMinibatchSize,
+                     kInputFrameCount,
+                     kCroppedFrameHeight,
+                     kCroppedFrameWidth));
   target_input_layer_ =
       boost::dynamic_pointer_cast<caffe::MemoryDataLayer<float>>(
           net_->layer_by_name("target_input_layer"));
@@ -219,11 +218,8 @@ Action DQN::SelectAction(const InputFrames& last_frames, const double epsilon) {
     const auto random_idx =
         std::uniform_int_distribution<int>(0, legal_actions_.size() - 1)(random_engine);
     action = legal_actions_[random_idx];
-    // std::cout << action_to_string(action) << " (random)";
-  } else {
-    // std::cout << action_to_string(action) << " (greedy)";
   }
-  // std::cout << " epsilon:" << epsilon << std::endl;
+  // std::cout << action_to_string(action);
   return action;
 }
 

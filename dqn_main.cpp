@@ -99,7 +99,7 @@ double PlayOneEpisode(
         total_score += ale.act(PLAYER_A_NOOP);
       }
     } else {
-      if (past_frames.size() > dqn::kInputFrameCount) {
+      while (past_frames.size() > dqn::kInputFrameCount) {
         past_frames.pop_front();
       }
       dqn::InputFrames input_frames;
@@ -156,7 +156,9 @@ int main(int argc, char** argv) {
     caffe::Caffe::set_mode(caffe::Caffe::CPU);
   }
 
-  ALEInterface ale(FLAGS_gui);
+  ALEInterface ale;
+  ale.set("display_screen", FLAGS_gui);
+  ale.set("disable_color_averaging", "true");
 
   // Load the ROM file
   ale.loadROM(FLAGS_rom);

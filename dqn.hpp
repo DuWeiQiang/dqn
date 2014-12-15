@@ -13,21 +13,20 @@
 
 namespace dqn {
 
-constexpr auto kRawFrameHeight = 210;
-constexpr auto kRawFrameWidth = 160;
-constexpr auto kCroppedFrameSize = 84;
-constexpr auto kCroppedFrameDataSize = kCroppedFrameSize * kCroppedFrameSize;
+constexpr auto kCroppedFrameHeight = 105;
+constexpr auto kCroppedFrameWidth = 80;
+constexpr auto kCroppedFrameDataSize = kCroppedFrameHeight * kCroppedFrameWidth;
 constexpr auto kInputFrameCount = 4;
 constexpr auto kInputDataSize = kCroppedFrameDataSize * kInputFrameCount;
 constexpr auto kMinibatchSize = 32;
 constexpr auto kMinibatchDataSize = kInputDataSize * kMinibatchSize;
-constexpr auto kGamma = 0.95f;
 constexpr auto kOutputCount = 18;
 
 using FrameData = std::array<uint8_t, kCroppedFrameDataSize>;
 using FrameDataSp = std::shared_ptr<FrameData>;
 using InputFrames = std::array<FrameDataSp, 4>;
-using Transition = std::tuple<InputFrames, Action, float, boost::optional<FrameDataSp>>;
+using Transition = std::tuple<InputFrames, Action,
+                              float, boost::optional<FrameDataSp>>;
 
 using FramesLayerInputData = std::array<float, kMinibatchDataSize>;
 using TargetLayerInputData = std::array<float, kMinibatchSize * kOutputCount>;
