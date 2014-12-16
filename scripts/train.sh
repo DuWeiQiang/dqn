@@ -37,6 +37,6 @@ then
     done
     cluster --suppress --depend $PID --email $EMAIL --gpu echo "$ROM_NAME Done!"
 else
-    cluster --gpu --email $EMAIL --outfile $ROM_NAME.out \
+    cluster --suppress --gpu --email $EMAIL --outfile $ROM_NAME.out \
         dqn -gpu -rom $ROM -snapshot_prefix state/$ROM_NAME
 fi
