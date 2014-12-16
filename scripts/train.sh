@@ -9,7 +9,7 @@ fi
 EMAIL="mhauskn@cs.utexas.edu"
 ROM=$1
 ROM_NAME=`basename $ROM | awk -F'.bin' '{print $1}'`
-MAX_ITER=3000000
+MAX_ITER=2000000
 TACC_ITER_PER_JOB=1000000
 
 if [[ `hostname` == *tacc* ]];
@@ -38,5 +38,5 @@ then
     cluster --suppress --depend $PID --email $EMAIL --gpu echo "$ROM_NAME Done!"
 else
     cluster --suppress --gpu --email $EMAIL --outfile $ROM_NAME.out \
-        dqn -gpu -rom $ROM -snapshot_prefix state/$ROM_NAME
+        dqn -gpu -rom $ROM -snapshot_prefix state/$ROM_NAME -max_iter $MAX_ITER
 fi
