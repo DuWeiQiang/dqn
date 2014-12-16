@@ -28,7 +28,9 @@ then
                 --outfile ${ROM_NAME}$i.out dqn -gpu -rom $ROM \
                 -model state/$ROM_NAME$(($i-1))_iter_${TACC_ITER_PER_JOB}.caffemodel \
                 -snapshot_prefix state/$ROM_NAME$i \
-                -max_iter $TACC_ITER_PER_JOB)
+                -max_iter $TACC_ITER_PER_JOB \
+                -memory_threshold 50000 \
+                -explore 1)
         fi
         i=$(($i + 1))
         sleep .5
