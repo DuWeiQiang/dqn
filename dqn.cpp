@@ -73,13 +73,13 @@ uint8_t PixelToGrayscale(const pixel_t pixel) {
 }
 
 FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
-  assert(raw_screen.width() == kRawFrameWidth);
-  assert(raw_screen.height() == kRawFrameHeight);
+  const int raw_screen_width = raw_screen.width();
+  const int raw_screen_height = raw_screen.height();
+  assert(raw_screen_height > raw_screen_width);
   const auto raw_pixels = raw_screen.getArray();
   auto screen = std::make_shared<FrameData>();
-  assert(kRawFrameHeight > kRawFrameWidth);
-  const auto x_ratio = kRawFrameWidth / static_cast<double>(kCroppedFrameSize);
-  const auto y_ratio = kRawFrameHeight / static_cast<double>(kCroppedFrameSize);
+  const auto x_ratio = raw_screen_width / static_cast<double>(kCroppedFrameSize);
+  const auto y_ratio = raw_screen_height / static_cast<double>(kCroppedFrameSize);
   for (auto i = 0; i < kCroppedFrameSize; ++i) {
     for (auto j = 0; j < kCroppedFrameSize; ++j) {
       const auto first_x = static_cast<int>(std::floor(j * x_ratio));
@@ -111,7 +111,7 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
               y_ratio_in_resulting_pixel <= 1.0);
           const auto grayscale =
               PixelToGrayscale(
-                  raw_pixels[static_cast<int>(y * kRawFrameWidth + x)]);
+                  raw_pixels[static_cast<int>(y * raw_screen_width + x)]);
           resulting_color +=
               (x_ratio_in_resulting_pixel / x_ratio) *
               (y_ratio_in_resulting_pixel / y_ratio) * grayscale;
