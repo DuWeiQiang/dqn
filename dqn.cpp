@@ -235,11 +235,10 @@ std::vector<std::pair<Action, float>> DQN::SelectActionGreedily(
     // Input frames to the net and compute Q values for each legal actions
     for (auto j = 0; j < kInputFrameCount; ++j) {
       const auto& frame_data = last_frames_batch[i][j];
-      std::copy(
-          frame_data->begin(),
-          frame_data->end(),
-          frames_input.begin() + i * kInputDataSize +
-              j * kCroppedFrameDataSize);
+      std::copy(frame_data->begin(),
+                frame_data->end(),
+                frames_input.begin() + i * kInputDataSize +
+                j * kCroppedFrameDataSize);
     }
   }
   InputDataIntoLayers(frames_input, dummy_input_data_, dummy_input_data_);
@@ -265,10 +264,9 @@ std::vector<std::pair<Action, float>> DQN::SelectActionGreedily(
     // }
 
     // Select the action with the maximum Q value
-    const auto max_idx =
-        std::distance(
-            q_values.begin(),
-            std::max_element(q_values.begin(), q_values.end()));
+    const auto max_idx = std::distance(
+        q_values.begin(),
+        std::max_element(q_values.begin(), q_values.end()));
     results.emplace_back(legal_actions_[max_idx], q_values[max_idx]);
   }
   return results;
