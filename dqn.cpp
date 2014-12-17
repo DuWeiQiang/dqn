@@ -211,18 +211,15 @@ void DQN::Initialize() {
 
 Action DQN::SelectAction(const InputFrames& last_frames, const double epsilon) {
   assert(epsilon >= 0.0 && epsilon <= 1.0);
-  auto action = SelectActionGreedily(last_frames).first;
   if (std::uniform_real_distribution<>(0.0, 1.0)(random_engine) < epsilon) {
     // Select randomly
-    const auto random_idx =
-        std::uniform_int_distribution<int>(0, legal_actions_.size() - 1)(random_engine);
-    action = legal_actions_[random_idx];
-    // std::cout << action_to_string(action) << " (random)";
+    const auto random_idx = std::uniform_int_distribution<int>
+        (0, legal_actions_.size() - 1)(random_engine);
+    return legal_actions_[random_idx];
   } else {
-    // std::cout << action_to_string(action) << " (greedy)";
+    // Select greedily
+    return SelectActionGreedily(last_frames).first;
   }
-  // std::cout << " epsilon:" << epsilon << std::endl;
-  return action;
 }
 
 std::pair<Action, float> DQN::SelectActionGreedily(const InputFrames& last_frames) {
