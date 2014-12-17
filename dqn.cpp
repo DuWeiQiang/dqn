@@ -78,32 +78,39 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
   assert(raw_screen_height > raw_screen_width);
   const auto raw_pixels = raw_screen.getArray();
   auto screen = std::make_shared<FrameData>();
-  const auto x_ratio = raw_screen_width / static_cast<double>(kCroppedFrameSize);
-  const auto y_ratio = raw_screen_height / static_cast<double>(kCroppedFrameSize);
+  // Crop 4% of the screen evenly from the top & bottom
+  const int cropped_screen_height = static_cast<int>(.92 * raw_screen_height);
+  const int start_y = static_cast<int>(
+      (raw_screen_height - cropped_screen_height) / 2.0f);
+  // Ignore the leftmost column of 8 pixels
+  const int start_x = 8;
+  const int cropped_screen_width = raw_screen_width - start_x;
+  const auto x_ratio = cropped_screen_width / static_cast<double>(kCroppedFrameSize);
+  const auto y_ratio = cropped_screen_height / static_cast<double>(kCroppedFrameSize);
   for (auto i = 0; i < kCroppedFrameSize; ++i) {
     for (auto j = 0; j < kCroppedFrameSize; ++j) {
-      const auto first_x = static_cast<int>(std::floor(j * x_ratio));
-      const auto last_x = static_cast<int>(std::floor((j + 1) * x_ratio));
-      const auto first_y = static_cast<int>(std::floor(i * y_ratio));
-      const auto last_y = static_cast<int>(std::floor((i + 1) * y_ratio));
+      const auto first_x = start_x + static_cast<int>(std::floor(j * x_ratio));
+      const auto last_x = start_x + static_cast<int>(std::floor((j + 1) * x_ratio));
+      const auto first_y = start_y + static_cast<int>(std::floor(i * y_ratio));
+      const auto last_y = start_y + static_cast<int>(std::floor((i + 1) * y_ratio));
       auto x_sum = 0.0;
       auto y_sum = 0.0;
       uint8_t resulting_color = 0.0;
       for (auto x = first_x; x <= last_x; ++x) {
         double x_ratio_in_resulting_pixel = 1.0;
         if (x == first_x) {
-          x_ratio_in_resulting_pixel = x + 1 - j * x_ratio;
+          x_ratio_in_resulting_pixel = x + 1 - j * x_ratio - start_x;
         } else if (x == last_x) {
-          x_ratio_in_resulting_pixel = x_ratio * (j + 1) - x;
+          x_ratio_in_resulting_pixel = x_ratio * (j + 1) - x + start_x;
         }
         assert(x_ratio_in_resulting_pixel >= 0.0 &&
                x_ratio_in_resulting_pixel <= 1.0);
         for (auto y = first_y; y <= last_y; ++y) {
           double y_ratio_in_resulting_pixel = 1.0;
           if (y == first_y) {
-            y_ratio_in_resulting_pixel = y + 1 - i * y_ratio;
+            y_ratio_in_resulting_pixel = y + 1 - i * y_ratio - start_y;
           } else if (y == last_y) {
-            y_ratio_in_resulting_pixel = y_ratio * (i + 1) - y;
+            y_ratio_in_resulting_pixel = y_ratio * (i + 1) - y + start_y;
           }
           assert(y_ratio_in_resulting_pixel >= 0.0 &&
                  y_ratio_in_resulting_pixel <= 1.0);
