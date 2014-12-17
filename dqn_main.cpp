@@ -133,6 +133,9 @@ double PlayOneEpisode(
                 reward,
                 dqn::PreprocessScreen(ale.getScreen()));
         dqn.AddTransition(transition);
+        if (dqn.current_iteration() % 500 == 0) {
+          dqn.Forget();
+        }
         // If the size of replay memory is enough, update DQN
         if (dqn.memory_size() > FLAGS_memory_threshold) {
           dqn.Update();

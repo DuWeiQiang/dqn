@@ -181,6 +181,9 @@ void DQN::Initialize() {
   // Cache pointers to blobs that hold Q values
   q_values_blob_ = net_->blob_by_name("q_values");
 
+  // Initialize the priority memory
+  std::fill(priority_memory_.begin(), priority_memory_.end(), -1);
+
   // Initialize dummy input data with 0
   std::fill(dummy_input_data_.begin(), dummy_input_data_.end(), 0.0);
 
@@ -272,10 +275,27 @@ std::vector<std::pair<Action, float>> DQN::SelectActionGreedily(
 }
 
 void DQN::AddTransition(const Transition& transition) {
-  if (replay_memory_.size() == replay_memory_capacity_) {
-    replay_memory_.pop_front();
+  const auto& reward = std::get<2>(transition);
+  if (reward != 0) {
+    const auto min_idx = std::distance(
+        priority_memory_.begin(),
+        std::min_element(priority_memory_.begin(), priority_memory_.end()));
+    priority_memory_[min_idx] = replay_memory_.size();
   }
   replay_memory_.push_back(transition);
+}
+
+void DQN::Forget() {
+ auto num_popped = 0;
+  while (replay_memory_.size() >= replay_memory_capacity_) {
+    replay_memory_.pop_front();
+    num_popped++;
+  }
+
+  // Update the indexes of the elements in the priority memory
+  for (auto i = 0; i < priority_memory_.size(); ++i) {
+    priority_memory_[i] -= num_popped;
+  }
 }
 
 void DQN::Update() {
@@ -286,14 +306,21 @@ void DQN::Update() {
   std::vector<int> transitions;
   transitions.reserve(kMinibatchSize);
   for (auto i = 0; i < kMinibatchSize; ++i) {
-    const auto random_transition_idx =
-        std::uniform_int_distribution<int>(0, replay_memory_.size() - 1)(
-            random_engine);
-    transitions.push_back(random_transition_idx);
+    const auto mem = priority_memory_[i];
+    if (mem >= 0) {
+      transitions.push_back(mem);
+      priority_memory_[i]--;
+    } else {
+      const auto random_transition_idx =
+          std::uniform_int_distribution<int>(0, replay_memory_.size() - 1)(
+              random_engine);
+      transitions.push_back(random_transition_idx);
+    }
   }
 
   // Compute target values: max_a Q(s',a)
   std::vector<InputFrames> target_last_frames_batch;
+
   for (const auto idx : transitions) {
     const auto& transition = replay_memory_[idx];
     if (!std::get<3>(transition)) {

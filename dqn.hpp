@@ -71,6 +71,11 @@ public:
   void AddTransition(const Transition& transition);
 
   /**
+   * Remove excess memories
+   */
+  void Forget();
+
+  /**
    * Update DQN using one minibatch
    */
   void Update();
@@ -98,6 +103,7 @@ private:
   const double gamma_;
   int current_iter_;
   std::deque<Transition> replay_memory_;
+  std::array<int, kMinibatchSize> priority_memory_;
   SolverSp solver_;
   NetSp net_;
   BlobSp q_values_blob_;
