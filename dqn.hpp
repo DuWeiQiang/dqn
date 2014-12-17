@@ -27,7 +27,8 @@ constexpr auto kOutputCount = 18;
 using FrameData = std::array<uint8_t, kCroppedFrameDataSize>;
 using FrameDataSp = std::shared_ptr<FrameData>;
 using InputFrames = std::array<FrameDataSp, 4>;
-using Transition = std::tuple<InputFrames, Action, float, boost::optional<FrameDataSp>>;
+using Transition = std::tuple<InputFrames, Action,
+                              float, boost::optional<FrameDataSp>>;
 
 using FramesLayerInputData = std::array<float, kMinibatchDataSize>;
 using TargetLayerInputData = std::array<float, kMinibatchSize * kOutputCount>;

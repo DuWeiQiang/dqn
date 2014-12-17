@@ -96,9 +96,8 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
         } else if (x == last_x) {
           x_ratio_in_resulting_pixel = x_ratio * (j + 1) - x;
         }
-        assert(
-            x_ratio_in_resulting_pixel >= 0.0 &&
-            x_ratio_in_resulting_pixel <= 1.0);
+        assert(x_ratio_in_resulting_pixel >= 0.0 &&
+               x_ratio_in_resulting_pixel <= 1.0);
         for (auto y = first_y; y <= last_y; ++y) {
           double y_ratio_in_resulting_pixel = 1.0;
           if (y == first_y) {
@@ -106,9 +105,8 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
           } else if (y == last_y) {
             y_ratio_in_resulting_pixel = y_ratio * (i + 1) - y;
           }
-          assert(
-              y_ratio_in_resulting_pixel >= 0.0 &&
-              y_ratio_in_resulting_pixel <= 1.0);
+          assert(y_ratio_in_resulting_pixel >= 0.0 &&
+                 y_ratio_in_resulting_pixel <= 1.0);
           const auto grayscale =
               PixelToGrayscale(
                   raw_pixels[static_cast<int>(y * raw_screen_width + x)]);
@@ -239,11 +237,10 @@ std::vector<std::pair<Action, float>> DQN::SelectActionGreedily(
     // Input frames to the net and compute Q values for each legal actions
     for (auto j = 0; j < kInputFrameCount; ++j) {
       const auto& frame_data = last_frames_batch[i][j];
-      std::copy(
-          frame_data->begin(),
-          frame_data->end(),
-          frames_input.begin() + i * kInputDataSize +
-              j * kCroppedFrameDataSize);
+      std::copy(frame_data->begin(),
+                frame_data->end(),
+                frames_input.begin() + i * kInputDataSize +
+                j * kCroppedFrameDataSize);
     }
   }
   InputDataIntoLayers(frames_input, dummy_input_data_, dummy_input_data_);
@@ -269,10 +266,9 @@ std::vector<std::pair<Action, float>> DQN::SelectActionGreedily(
     // }
 
     // Select the action with the maximum Q value
-    const auto max_idx =
-        std::distance(
-            q_values.begin(),
-            std::max_element(q_values.begin(), q_values.end()));
+    const auto max_idx = std::distance(
+        q_values.begin(),
+        std::max_element(q_values.begin(), q_values.end()));
     results.emplace_back(legal_actions_[max_idx], q_values[max_idx]);
   }
   return results;

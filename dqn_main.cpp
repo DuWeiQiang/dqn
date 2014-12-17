@@ -99,7 +99,7 @@ double PlayOneEpisode(
         total_score += ale.act(PLAYER_A_NOOP);
       }
     } else {
-      if (past_frames.size() > dqn::kInputFrameCount) {
+      while (past_frames.size() > dqn::kInputFrameCount) {
         past_frames.pop_front();
       }
       dqn::InputFrames input_frames;
