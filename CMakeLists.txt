@@ -3,7 +3,7 @@ project(dqn)
 
 option(CPU_ONLY "Use CPU only for Caffe" OFF)
 option(USE_CUDNN "Use cuDNN for Caffe" ON)
-option(USE_SDL "Use SDL for ALE" OFF)
+option(USE_SDL "Use SDL for ALE" ON)
 
 include_directories(~/projects/muupan_caffe/include)
 include_directories(~/projects/Arcade-Learning-Environment/src)
@@ -56,4 +56,3 @@ endif()
 if(USE_CUDNN)
   target_link_libraries(dqn cudnn)
 endif()
-
