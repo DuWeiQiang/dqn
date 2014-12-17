@@ -37,6 +37,5 @@ then
     done
     cluster --suppress --depend $PID --email $EMAIL --gpu echo "$ROM_NAME Done!"
 else
-    cluster --suppress --gpu --email $EMAIL --outfile $ROM_NAME.out \
-        dqn -gpu -rom $ROM -snapshot_prefix state/$ROM_NAME -max_iter $MAX_ITER
+    cluster --suppress --gpu --email $EMAIL --outfile $ROM_NAME.out dqn -gpu -rom $ROM -snapshot_prefix state/$ROM_NAME -max_iter $MAX_ITER
 fi

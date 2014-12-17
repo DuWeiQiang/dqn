@@ -28,9 +28,9 @@ DEFINE_double(momentum, 0.95, "Solver momentum");
 DEFINE_double(base_lr, 0.2, "Solver base learning rate");
 DEFINE_string(lr_policy, "step", "Solver lr policy");
 DEFINE_double(solver_gamma, 0.1, "Solver gamma");
-DEFINE_int32(stepsize, 1000000, "Solver stepsize");
-DEFINE_int32(max_iter, 2000000, "Maximum number of iterations");
-DEFINE_int32(snapshot, 100000, "Snapshot frequency in iterations");
+DEFINE_int32(stepsize, 10000000, "Solver stepsize");
+DEFINE_int32(max_iter, 10000000, "Maximum number of iterations");
+DEFINE_int32(snapshot, 1000000, "Snapshot frequency in iterations");
 DEFINE_int32(display, 10000, "Display frequency in iterations");
 DEFINE_string(snapshot_prefix, "state/dqn", "Prefix for saving snapshots");
 
