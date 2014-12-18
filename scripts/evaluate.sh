@@ -19,7 +19,7 @@ NET="dqn.prototxt"
 NUM_GAMES=1
 
 CMD="dqn -gpu -rom $ROM -evaluate -evaluate_with_epsilon $EPSILON \
-    -model $MODEL -net $NET $SAVE_SCREEN -repeat_games $NUM_GAMES"
+    -weights $MODEL -model $NET $SAVE_SCREEN -repeat_games $NUM_GAMES"
 
 if [[ `hostname` == *tacc* ]];
 then

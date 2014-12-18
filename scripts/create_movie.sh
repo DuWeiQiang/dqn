@@ -19,7 +19,7 @@ mkdir -p $SCREEN_DIR
 
 echo "==> Evaluating $MODEL on $ROM"
 sleep .5
-./dqn -evaluate -rom $ROM -save_screen $SCREEN_DIR/ -model $MODEL -net $NET
+./dqn -evaluate -rom $ROM -save_screen $SCREEN_DIR/ -weights $MODEL -model $NET
 
 echo "==> Converting pngs into movie: $MOVIE"
 sleep .5

@@ -18,6 +18,7 @@ if [[ `hostname` == *tacc* ]];
 then
     MAX_ITER=10000000
     TACC_ITER_PER_JOB=1000000
+    MEMORY_THRESHOLD=100000
     iter=0
     i=0
     while [ $iter -lt $MAX_ITER ]
@@ -30,10 +31,10 @@ then
         else
             PID=$(cluster --depend $PID --suppress --gpu \
                 --outfile $EXP_DIR/${ROM_NAME}$i.out dqn -gpu -rom $ROM \
-                -model state/$ROM_NAME$(($i-1))_iter_${TACC_ITER_PER_JOB}.caffemodel \
+                -snapshot state/$ROM_NAME$(($i-1))_iter_${TACC_ITER_PER_JOB}.solverstate \
                 -snapshot_prefix $EXP_DIR/$ROM_NAME$i \
                 -max_iter $TACC_ITER_PER_JOB \
-                -memory_threshold 50000 \
+                -memory_threshold $MEMORY_THRESHOLD \
                 -explore 1)
         fi
         i=$(($i + 1))
@@ -41,5 +42,5 @@ then
     done
     cluster --suppress --depend $PID --email $EMAIL --gpu echo "$ROM_NAME Done!"
 else
-    cluster --suppress --gpu --email $EMAIL --outfile $EXP_DIR/$ROM_NAME.out dqn -gpu -rom $ROM -snapshot_prefix $EXP_DIR/$ROM_NAME -max_iter $MAX_ITER
+    cluster --suppress --gpu --email $EMAIL --outfile $EXP_DIR/$ROM_NAME.out dqn -gpu -rom $ROM -snapshot_prefix $EXP_DIR/$ROM_NAME
 fi
