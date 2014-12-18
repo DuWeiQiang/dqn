@@ -17,20 +17,21 @@ DEFINE_int32(skip_frame, 3, "Number of frames skipped");
 DEFINE_bool(show_frame, false, "Show the current frame in CUI");
 DEFINE_string(save_screen, "", "File prefix in to save frames");
 DEFINE_string(save_binary_screen, "", "File prefix in to save binary frames");
-DEFINE_string(model, "", "Model file to load");
+DEFINE_string(weights, "", "The pretrained weights load (*.caffemodel).");
+DEFINE_string(snapshot, "", "The solver state to load (*.solverstate).");
 DEFINE_bool(evaluate, false, "Evaluation mode: only playing a game, no updates");
 DEFINE_double(evaluate_with_epsilon, 0.05, "Epsilon value to be used in evaluation mode");
 DEFINE_double(repeat_games, 1, "Number of games played in evaluation mode");
 // Solver Parameters
 DEFINE_string(solver, "", "Solver parameter file (*.prototxt)");
-DEFINE_string(net, "dqn.prototxt", "Network parameter file (*.prototxt)");
+DEFINE_string(model, "dqn.prototxt", "The model definition (*.prototxt).");
 DEFINE_double(momentum, 0.95, "Solver momentum");
 DEFINE_double(base_lr, 0.2, "Solver base learning rate");
 DEFINE_string(lr_policy, "step", "Solver lr policy");
 DEFINE_double(solver_gamma, 0.1, "Solver gamma");
 DEFINE_int32(stepsize, 10000000, "Solver stepsize");
 DEFINE_int32(max_iter, 10000000, "Maximum number of iterations");
-DEFINE_int32(snapshot, 1000000, "Snapshot frequency in iterations");
+DEFINE_int32(snapshot_frequency, 1000000, "Snapshot frequency in iterations");
 DEFINE_int32(display, 10000, "Display frequency in iterations");
 DEFINE_string(snapshot_prefix, "state/dqn", "Prefix for saving snapshots");
 
@@ -166,13 +167,18 @@ int main(int argc, char** argv) {
   // Get the vector of legal actions
   const auto legal_actions = ale.getMinimalActionSet();
 
+  CHECK(FLAGS_snapshot.empty() || FLAGS_weights.empty())
+      << "Give a snapshot to resume training or weights to finetune "
+      "but not both.";
+
   // Construct the solver either from file or params
   caffe::SolverParameter solver_param;
   if (!FLAGS_solver.empty()) {
-    std::cout << "Loading solver from " << FLAGS_solver << std::endl;
+    LOG(INFO) << "Reading solver prototxt from " << FLAGS_solver;
     caffe::ReadProtoFromTextFileOrDie(FLAGS_solver, &solver_param);
   } else {
-    solver_param.set_net(FLAGS_net);
+    LOG(INFO) << "Creating solver from scratch.";
+    solver_param.set_net(FLAGS_model);
     solver_param.set_solver_type(::caffe::SolverParameter_SolverType::
                                  SolverParameter_SolverType_ADADELTA);
     solver_param.set_momentum(FLAGS_momentum);
@@ -182,7 +188,7 @@ int main(int argc, char** argv) {
     solver_param.set_stepsize(FLAGS_stepsize);
     solver_param.set_max_iter(FLAGS_max_iter);
     solver_param.set_display(FLAGS_display);
-    solver_param.set_snapshot(FLAGS_snapshot);
+    solver_param.set_snapshot(FLAGS_snapshot_frequency);
     solver_param.set_snapshot_prefix(FLAGS_snapshot_prefix);
   }
 
@@ -190,13 +196,15 @@ int main(int argc, char** argv) {
   dqn.Initialize();
 
   if (!FLAGS_save_screen.empty()) {
-    std::cout << "Saving screens to: " << FLAGS_save_screen << std::endl;
+    LOG(INFO) << "Saving screens to: " << FLAGS_save_screen;
   }
 
-  if (!FLAGS_model.empty()) {
-    // Just evaluate the given trained model
-    std::cout << "Loading " << FLAGS_model << std::endl;
-    dqn.LoadTrainedModel(FLAGS_model);
+  if (!FLAGS_snapshot.empty()) {
+    LOG(INFO) << "Resuming from " << FLAGS_snapshot;
+    dqn.RestoreSolver(FLAGS_snapshot);
+  } else if (!FLAGS_weights.empty()) {
+    LOG(INFO) << "Finetuning from " << FLAGS_weights;
+    dqn.LoadTrainedModel(FLAGS_weights);
   }
 
   if (FLAGS_evaluate) {

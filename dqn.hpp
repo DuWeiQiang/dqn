@@ -61,6 +61,11 @@ public:
   void LoadTrainedModel(const std::string& model_file);
 
   /**
+   * Restore solving from a solver file.
+   */
+  void RestoreSolver(const std::string& solver_file);
+
+  /**
    * Select an action by epsilon-greedy.
    */
   Action SelectAction(const InputFrames& input_frames, double epsilon);

@@ -180,6 +180,10 @@ void DQN::LoadTrainedModel(const std::string& model_bin) {
   net_->CopyTrainedLayersFrom(model_bin);
 }
 
+void DQN::RestoreSolver(const std::string& solver_bin) {
+  solver_->Restore(solver_bin.c_str());
+}
+
 void DQN::Initialize() {
   // Initialize net and solver
   solver_.reset(caffe::GetSolver<float>(solver_param_));
