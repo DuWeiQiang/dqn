@@ -23,20 +23,20 @@ then
     i=0
     while [ $iter -lt $MAX_ITER ]
     do
-        iter=$(($iter + $TACC_ITER_PER_JOB))
         if [ -z "$PID" ]; then
             PID=$(cluster --suppress --gpu --outfile $EXP_DIR/${ROM_NAME}$i.out \
-                dqn -gpu -rom $ROM -snapshot_prefix $EXP_DIR/$ROM_NAME$i \
+                dqn -gpu -rom $ROM -snapshot_prefix $EXP_DIR/$ROM_NAME \
                 -max_iter $TACC_ITER_PER_JOB)
         else
             PID=$(cluster --depend $PID --suppress --gpu \
                 --outfile $EXP_DIR/${ROM_NAME}$i.out dqn -gpu -rom $ROM \
-                -snapshot state/$ROM_NAME$(($i-1))_iter_${TACC_ITER_PER_JOB}.solverstate \
-                -snapshot_prefix $EXP_DIR/$ROM_NAME$i \
+                -snapshot ${EXP_DIR}/${ROM_NAME}_iter_${iter}.solverstate \
+                -snapshot_prefix $EXP_DIR/$ROM_NAME \
                 -max_iter $TACC_ITER_PER_JOB \
                 -memory_threshold $MEMORY_THRESHOLD \
                 -explore 1)
         fi
+        iter=$(($iter + $TACC_ITER_PER_JOB))
         i=$(($i + 1))
         sleep .5
     done
