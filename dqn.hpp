@@ -79,8 +79,14 @@ public:
    */
   void Update();
 
+  const std::deque<Transition>& replay_memory() { return replay_memory_; }
+  void clear_memory() { replay_memory_.clear(); }
   int memory_size() const { return replay_memory_.size(); }
   int current_iteration() const { return solver_->iter(); }
+
+  std::pair<Action, float> SelectActionGreedily(const InputFrames& last_frames);
+  std::vector<std::pair<Action, float>> SelectActionGreedily(
+      const std::vector<InputFrames>& last_frames);
 
 private:
   using SolverSp = std::shared_ptr<caffe::Solver<float>>;
@@ -88,9 +94,6 @@ private:
   using BlobSp = boost::shared_ptr<caffe::Blob<float>>;
   using MemoryDataLayerSp = boost::shared_ptr<caffe::MemoryDataLayer<float>>;
 
-  std::pair<Action, float> SelectActionGreedily(const InputFrames& last_frames);
-  std::vector<std::pair<Action, float>> SelectActionGreedily(
-      const std::vector<InputFrames>& last_frames);
   void InputDataIntoLayers(
       const FramesLayerInputData& frames_data,
       const TargetLayerInputData& target_data,

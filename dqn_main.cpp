@@ -159,6 +159,25 @@ void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
       total_score / static_cast<double>(FLAGS_repeat_games) << std::endl;
 }
 
+/**
+ * Compute the Average Q-Value over the holdout set of states
+ */
+double AverageQValue(dqn::DQN& dqn,
+                   const std::vector<dqn::InputFrames>& holdout_frames) {
+  auto total_qval = 0.0;
+  for (auto i = 0; i < holdout_frames.size() / dqn::kMinibatchSize; ++i) {
+    std::vector<dqn::InputFrames> frame_batch(
+        holdout_frames.begin() + i * dqn::kMinibatchSize,
+        holdout_frames.begin() + (i + 1) * dqn::kMinibatchSize);
+    std::vector<std::pair<Action, float> > action_vals =
+        dqn.SelectActionGreedily(frame_batch);
+    for (auto j = 0; j < action_vals.size(); ++j) {
+      total_qval += action_vals[j].second;
+    }
+  }
+  return total_qval / static_cast<double>(holdout_frames.size());
+}
+
 int main(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
@@ -226,6 +245,22 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  // Generate a holdout set of experiences to evaluate against
+  constexpr auto holdoutSize = 64 * dqn::kMinibatchSize;
+  while (dqn.memory_size() < holdoutSize) {
+    PlayOneEpisode(ale, dqn, 1.0, true);
+  }
+  // Copy the experiences from the replay memory
+  std::vector<dqn::InputFrames> holdout_frames;
+  holdout_frames.reserve(dqn.memory_size());
+  for (auto i = 0; i < holdoutSize; ++i) {
+    const dqn::Transition& t = dqn.replay_memory()[i];
+    holdout_frames.push_back(std::get<0>(t));
+  }
+  CHECK_EQ(holdout_frames.size(), holdoutSize);
+  LOG(INFO) << "Holdout set contains " << holdout_frames.size() << " frames.";
+  dqn.clear_memory();
+
   auto episode = 0;
   while (dqn.current_iteration() < solver_param.max_iter()) {
     const auto epsilon = CalculateEpsilon(dqn.current_iteration());
@@ -233,6 +268,7 @@ int main(int argc, char** argv) {
     LOG(INFO) << "Episode " << episode << ", score = " << score
               << ", epsilon = " << epsilon << ", iter = "
               << dqn.current_iteration();
+    LOG(INFO) << "Average Q-Value: " << AverageQValue(dqn, holdout_frames);
     episode++;
   }
   Evaluate(ale, dqn);
