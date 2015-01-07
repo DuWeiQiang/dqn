@@ -47,7 +47,6 @@ public:
         solver_param_(solver_param),
         replay_memory_capacity_(replay_memory_capacity),
         gamma_(gamma),
-        current_iter_(0),
         random_engine(0) {}
 
   /**
@@ -81,7 +80,7 @@ public:
   void Update();
 
   int memory_size() const { return replay_memory_.size(); }
-  int current_iteration() const { return current_iter_; }
+  int current_iteration() const { return solver_->iter(); }
 
 private:
   using SolverSp = std::shared_ptr<caffe::Solver<float>>;
@@ -101,7 +100,6 @@ private:
   const caffe::SolverParameter solver_param_;
   const int replay_memory_capacity_;
   const double gamma_;
-  int current_iter_;
   std::deque<Transition> replay_memory_;
   SolverSp solver_;
   NetSp net_;

@@ -11,7 +11,7 @@ DEFINE_bool(gui, false, "Open a GUI window");
 DEFINE_string(rom, "roms/pong.bin", "Atari 2600 ROM to play");
 DEFINE_int32(memory, 500000, "Capacity of replay memory");
 DEFINE_int32(explore, 1000000, "Number of iterations needed for epsilon to reach given value.");
-DEFINE_double(epsilon, 0.1, "Value of epsilon reached after explore iterations.");
+DEFINE_double(epsilon, 0.05, "Value of epsilon reached after explore iterations.");
 DEFINE_double(gamma, 0.95, "Discount factor of future rewards (0,1]");
 DEFINE_int32(memory_threshold, 100, "Enough amount of transitions to start learning");
 DEFINE_int32(skip_frame, 3, "Number of frames skipped");
@@ -73,12 +73,9 @@ void SaveInputFrames(const dqn::InputFrames& frames, const string filename) {
 /**
  * Play one episode and return the total score
  */
-double PlayOneEpisode(
-    ALEInterface& ale,
-    dqn::DQN& dqn,
-    const double epsilon,
-    const bool update) {
-  assert(!ale.game_over());
+double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
+                      const bool update) {
+  CHECK(!ale.game_over());
   std::deque<dqn::FrameDataSp> past_frames;
   auto total_score = 0.0;
   for (auto frame = 0; !ale.game_over(); ++frame) {
@@ -157,8 +154,8 @@ void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
     ss << score << " ";
     total_score += score;
   }
-  LOG(INFO) << "Evaluation_scores: " << ss.str();
-  LOG(INFO) << "Average_score: " <<
+  LOG(INFO) << "Evaluation scores: " << ss.str();
+  LOG(INFO) << "Average score: " <<
       total_score / static_cast<double>(FLAGS_repeat_games) << std::endl;
 }
 
@@ -229,14 +226,14 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  for (auto episode = 0; dqn.current_iteration() < FLAGS_max_iter; episode++) {
+  auto episode = 0;
+  while (dqn.current_iteration() < solver_param.max_iter()) {
     const auto epsilon = CalculateEpsilon(dqn.current_iteration());
     const auto score = PlayOneEpisode(ale, dqn, epsilon, true);
-    LOG(INFO) << "Episode " << episode << " score: " << score
-              << " epsilon: " << epsilon << std::endl;
-    if (dqn.current_iteration() % FLAGS_snapshot_frequency == 0) {
-      Evaluate(ale, dqn);
-    }
+    LOG(INFO) << "Episode " << episode << ", score = " << score
+              << ", epsilon = " << epsilon << ", iter = "
+              << dqn.current_iteration();
+    episode++;
   }
   Evaluate(ale, dqn);
 };
