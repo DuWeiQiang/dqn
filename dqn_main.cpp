@@ -22,7 +22,7 @@ DEFINE_string(weights, "", "The pretrained weights load (*.caffemodel).");
 DEFINE_string(snapshot, "", "The solver state to load (*.solverstate).");
 DEFINE_bool(evaluate, false, "Evaluation mode: only playing a game, no updates");
 DEFINE_double(evaluate_with_epsilon, 0.05, "Epsilon value to be used in evaluation mode");
-DEFINE_double(repeat_games, 1, "Number of games played in evaluation mode");
+DEFINE_double(repeat_games, 10, "Number of games played in evaluation mode");
 // Solver Parameters
 DEFINE_string(solver, "", "Solver parameter file (*.prototxt)");
 DEFINE_string(model, "dqn.prototxt", "The model definition (*.prototxt).");
@@ -82,7 +82,6 @@ double PlayOneEpisode(
   std::deque<dqn::FrameDataSp> past_frames;
   auto total_score = 0.0;
   for (auto frame = 0; !ale.game_over(); ++frame) {
-    // std::cout << "frame: " << frame << std::endl;
     const ALEScreen& screen = ale.getScreen();
     const auto current_frame = dqn::PreprocessScreen(screen);
     if (FLAGS_show_frame) {
@@ -144,6 +143,23 @@ double PlayOneEpisode(
   }
   ale.reset_game();
   return total_score;
+}
+
+/**
+ * Evaluate the current player
+ */
+void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
+  auto total_score = 0.0;
+  std::stringstream ss;
+  for (auto i = 0; i < FLAGS_repeat_games; ++i) {
+    const auto score =
+        PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, false);
+    ss << score << " ";
+    total_score += score;
+  }
+  LOG(INFO) << "Evaluation_scores: " << ss.str();
+  LOG(INFO) << "Average_score: " <<
+      total_score / static_cast<double>(FLAGS_repeat_games) << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -209,27 +225,18 @@ int main(int argc, char** argv) {
   }
 
   if (FLAGS_evaluate) {
-    auto total_score = 0.0;
-    for (auto i = 0; i < FLAGS_repeat_games; ++i) {
-      std::cout << "game: " << i << std::endl;
-      const auto score =
-          PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, false);
-      std::cout << "score: " << score << std::endl;
-      total_score += score;
-    }
-    std::cout << "total_score: " << total_score << std::endl;
+    Evaluate(ale, dqn);
     return 0;
   }
 
   for (auto episode = 0; dqn.current_iteration() < FLAGS_max_iter; episode++) {
     const auto epsilon = CalculateEpsilon(dqn.current_iteration());
-    std::cout << "Episode " << episode
-              << ", epsilon = " << epsilon << std::endl;
-    PlayOneEpisode(ale, dqn, epsilon, true);
-    if (dqn.current_iteration() % 10 == 0) {
-      // After every 10 episodes, evaluate the current strength
-      const auto eval_score = PlayOneEpisode(ale, dqn, 0.05, false);
-      std::cout << "evaluation score: " << eval_score << std::endl;
+    const auto score = PlayOneEpisode(ale, dqn, epsilon, true);
+    LOG(INFO) << "Episode " << episode << " score: " << score
+              << " epsilon: " << epsilon << std::endl;
+    if (dqn.current_iteration() % FLAGS_snapshot_frequency == 0) {
+      Evaluate(ale, dqn);
     }
   }
+  Evaluate(ale, dqn);
 };
