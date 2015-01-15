@@ -93,8 +93,7 @@ private:
       const std::vector<InputFrames>& last_frames);
   void InputDataIntoLayers(
       const FramesLayerInputData& frames_data,
-      const TargetLayerInputData& target_data,
-      const FilterLayerInputData& filter_data);
+      const TargetLayerInputData& target_data);
 
   const ActionVect legal_actions_;
   const caffe::SolverParameter solver_param_;
@@ -103,10 +102,8 @@ private:
   std::deque<Transition> replay_memory_;
   SolverSp solver_;
   NetSp net_;
-  BlobSp q_values_blob_;
   MemoryDataLayerSp frames_input_layer_;
   MemoryDataLayerSp target_input_layer_;
-  MemoryDataLayerSp filter_input_layer_;
   TargetLayerInputData dummy_input_data_;
   std::mt19937 random_engine;
 };

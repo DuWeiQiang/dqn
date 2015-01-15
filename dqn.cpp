@@ -188,10 +188,6 @@ void DQN::Initialize() {
   // Initialize net and solver
   solver_.reset(caffe::GetSolver<float>(solver_param_));
   net_ = solver_->net();
-  
-
-  // Cache pointers to blobs that hold Q values
-  q_values_blob_ = net_->blob_by_name("q_values");
 
   // Initialize dummy input data with 0
   std::fill(dummy_input_data_.begin(), dummy_input_data_.end(), 0.0);
@@ -212,75 +208,15 @@ void DQN::Initialize() {
           net_->layer_by_name("target_input_layer"));
   assert(target_input_layer_);
   assert(HasBlobSize(
-      *net_->blob_by_name("target"), kMinibatchSize, kOutputCount, 1, 1));
-  filter_input_layer_ =
-      boost::dynamic_pointer_cast<caffe::MemoryDataLayer<float>>(
-          net_->layer_by_name("filter_input_layer"));
-  assert(filter_input_layer_);
-  assert(HasBlobSize(
-      *net_->blob_by_name("filter"), kMinibatchSize, kOutputCount, 1, 1));
+      *net_->blob_by_name("target"), kMinibatchSize, 1,
+      kCroppedFrameSize, kCroppedFrameSize));
 }
 
 Action DQN::SelectAction(const InputFrames& last_frames, const double epsilon) {
-  assert(epsilon >= 0.0 && epsilon <= 1.0);
-  if (std::uniform_real_distribution<>(0.0, 1.0)(random_engine) < epsilon) {
-    // Select randomly
-    const auto random_idx = std::uniform_int_distribution<int>
-        (0, legal_actions_.size() - 1)(random_engine);
-    return legal_actions_[random_idx];
-  } else {
-    // Select greedily
-    return SelectActionGreedily(last_frames).first;
-  }
-}
-
-std::pair<Action, float> DQN::SelectActionGreedily(const InputFrames& last_frames) {
-  return SelectActionGreedily(std::vector<InputFrames>{{last_frames}}).front();
-}
-
-std::vector<std::pair<Action, float>> DQN::SelectActionGreedily(
-    const std::vector<InputFrames>& last_frames_batch) {
-  assert(last_frames_batch.size() <= kMinibatchSize);
-  std::array<float, kMinibatchDataSize> frames_input;
-  for (auto i = 0; i < last_frames_batch.size(); ++i) {
-    // Input frames to the net and compute Q values for each legal actions
-    for (auto j = 0; j < kInputFrameCount; ++j) {
-      const auto& frame_data = last_frames_batch[i][j];
-      std::copy(frame_data->begin(),
-                frame_data->end(),
-                frames_input.begin() + i * kInputDataSize +
-                j * kCroppedFrameDataSize);
-    }
-  }
-  InputDataIntoLayers(frames_input, dummy_input_data_, dummy_input_data_);
-  net_->ForwardPrefilled(nullptr);
-
-  std::vector<std::pair<Action, float>> results;
-  results.reserve(last_frames_batch.size());
-  for (auto i = 0; i < last_frames_batch.size(); ++i) {
-    // Get the Q values from the net
-    const auto action_evaluator = [&](Action action) {
-      const auto q = q_values_blob_->data_at(i, static_cast<int>(action), 0, 0);
-      assert(!std::isnan(q));
-      return q;
-    };
-    std::vector<float> q_values(legal_actions_.size());
-    std::transform(
-        legal_actions_.begin(),
-        legal_actions_.end(),
-        q_values.begin(),
-        action_evaluator);
-    // if (last_frames_batch.size() == 1) {
-    //   std::cout << PrintQValues(q_values, legal_actions_);
-    // }
-
-    // Select the action with the maximum Q value
-    const auto max_idx = std::distance(
-        q_values.begin(),
-        std::max_element(q_values.begin(), q_values.end()));
-    results.emplace_back(legal_actions_[max_idx], q_values[max_idx]);
-  }
-  return results;
+  // Select randomly for now
+  const auto random_idx = std::uniform_int_distribution<int>
+      (0, legal_actions_.size() - 1)(random_engine);
+  return legal_actions_[random_idx];
 }
 
 void DQN::AddTransition(const Transition& transition) {
@@ -301,54 +237,36 @@ void DQN::Update() {
     transitions.push_back(random_transition_idx);
   }
 
-  // Compute target values: max_a Q(s',a)
-  std::vector<InputFrames> target_last_frames_batch;
-  for (const auto idx : transitions) {
-    const auto& transition = replay_memory_[idx];
-    if (!std::get<3>(transition)) {
-      // This is a terminal state
-      continue;
-    }
-    // Compute target value
-    InputFrames target_last_frames;
-    for (auto i = 0; i < kInputFrameCount - 1; ++i) {
-      target_last_frames[i] = std::get<0>(transition)[i + 1];
-    }
-    target_last_frames[kInputFrameCount - 1] = std::get<3>(transition).get();
-    target_last_frames_batch.push_back(target_last_frames);
-  }
-  const auto actions_and_values =
-      SelectActionGreedily(target_last_frames_batch);
-
   FramesLayerInputData frames_input;
   TargetLayerInputData target_input;
-  FilterLayerInputData filter_input;
-  std::fill(target_input.begin(), target_input.end(), 0.0f);
-  std::fill(filter_input.begin(), filter_input.end(), 0.0f);
-  auto target_value_idx = 0;
+
   for (auto i = 0; i < kMinibatchSize; ++i) {
     const auto& transition = replay_memory_[transitions[i]];
     const auto action = std::get<1>(transition);
     assert(static_cast<int>(action) < kOutputCount);
     const auto reward = std::get<2>(transition);
     assert(reward >= -1.0 && reward <= 1.0);
-    const auto target = std::get<3>(transition) ?
-          reward + gamma_ * actions_and_values[target_value_idx++].second :
-          reward;
-    assert(!std::isnan(target));
-    target_input[i * kOutputCount + static_cast<int>(action)] = target;
-    filter_input[i * kOutputCount + static_cast<int>(action)] = 1;
-    VLOG(1) << "filter:" << action_to_string(action) << " target:" << target;
+    if (!std::get<3>(transition)) {
+      // This is a terminal state. Fill target with zeros
+      std::fill(target_input.begin() + i * kInputDataSize,
+                target_input.begin() + (i + 1) * kInputDataSize,
+                0.0f);
+    } else {
+      // const auto& next_frame_data = std::get<3>(transition);
+      const FrameDataSp& next_frame_data = std::get<3>(transition).get();
+      std::copy(next_frame_data->begin(),
+                next_frame_data->end(),
+                target_input.begin());
+    }
     for (auto j = 0; j < kInputFrameCount; ++j) {
       const auto& frame_data = std::get<0>(transition)[j];
-      std::copy(
-          frame_data->begin(),
-          frame_data->end(),
-          frames_input.begin() + i * kInputDataSize +
-              j * kCroppedFrameDataSize);
+      std::copy(frame_data->begin(),
+                frame_data->end(),
+                frames_input.begin() + i * kInputDataSize +
+                j * kCroppedFrameDataSize);
     }
   }
-  InputDataIntoLayers(frames_input, target_input, filter_input);
+  InputDataIntoLayers(frames_input, target_input);
   solver_->Step(1);
   // Log the first parameter of each hidden layer
   VLOG(1) << "conv1:" <<
@@ -361,20 +279,14 @@ void DQN::Update() {
       net_->layer_by_name("ip2_layer")->blobs().front()->data_at(1, 0, 0, 0);
 }
 
-void DQN::InputDataIntoLayers(
-      const FramesLayerInputData& frames_input,
-      const TargetLayerInputData& target_input,
-      const FilterLayerInputData& filter_input) {
+void DQN::InputDataIntoLayers(const FramesLayerInputData& frames_input,
+                              const TargetLayerInputData& target_input) {
   frames_input_layer_->Reset(
       const_cast<float*>(frames_input.data()),
       dummy_input_data_.data(),
       kMinibatchSize);
   target_input_layer_->Reset(
       const_cast<float*>(target_input.data()),
-      dummy_input_data_.data(),
-      kMinibatchSize);
-  filter_input_layer_->Reset(
-      const_cast<float*>(filter_input.data()),
       dummy_input_data_.data(),
       kMinibatchSize);
 }
