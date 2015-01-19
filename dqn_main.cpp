@@ -6,6 +6,7 @@
 #include "prettyprint.hpp"
 #include "dqn.hpp"
 
+// DQN Parameters
 DEFINE_bool(gpu, true, "Use GPU to brew Caffe");
 DEFINE_bool(gui, false, "Open a GUI window");
 DEFINE_string(rom, "roms/pong.bin", "Atari 2600 ROM to play");
@@ -25,6 +26,7 @@ DEFINE_double(evaluate_with_epsilon, 0.05, "Epsilon value to be used in evaluati
 DEFINE_double(repeat_games, 10, "Number of games played in evaluation mode");
 // Solver Parameters
 DEFINE_string(solver, "", "Solver parameter file (*.prototxt)");
+DEFINE_string(solver_type, "ADADELTA", "Type of solver.");
 DEFINE_string(model, "dqn.prototxt", "The model definition (*.prototxt).");
 DEFINE_double(momentum, 0.95, "Solver momentum");
 DEFINE_double(base_lr, 0.1, "Solver base learning rate");
@@ -193,8 +195,10 @@ int main(int argc, char** argv) {
   } else {
     LOG(INFO) << "Creating solver from scratch.";
     solver_param.set_net(FLAGS_model);
-    solver_param.set_solver_type(::caffe::SolverParameter_SolverType::
-                                 SolverParameter_SolverType_ADADELTA);
+    ::caffe::SolverParameter_SolverType solver_type;
+    CHECK(::caffe::SolverParameter_SolverType_Parse(FLAGS_solver_type, &solver_type))
+        << "Invalid Solver Type " << FLAGS_solver_type;
+    solver_param.set_solver_type(solver_type);
     solver_param.set_momentum(FLAGS_momentum);
     solver_param.set_base_lr(FLAGS_base_lr);
     solver_param.set_lr_policy(FLAGS_lr_policy);
