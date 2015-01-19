@@ -9,7 +9,7 @@
 DEFINE_bool(gpu, true, "Use GPU to brew Caffe");
 DEFINE_bool(gui, false, "Open a GUI window");
 DEFINE_string(rom, "roms/pong.bin", "Atari 2600 ROM to play");
-DEFINE_int32(memory, 500000, "Capacity of replay memory");
+DEFINE_int32(memory, 400000, "Capacity of replay memory");
 DEFINE_int32(explore, 1000000, "Number of iterations needed for epsilon to reach given value.");
 DEFINE_double(epsilon, 0.05, "Value of epsilon reached after explore iterations.");
 DEFINE_double(gamma, 0.95, "Discount factor of future rewards (0,1]");
