@@ -1,9 +1,9 @@
-#!/usr/bin/ipython -i
+#!/opt/apps/intel14/mvapich2_2_0/python/2.7.6/bin/ipython -i
 
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
-caffe_root = '/u/mhauskn/projects/caffe/'
+caffe_root = '/home/01904/mhauskn/projects/caffe/'
 sys.path.insert(0, caffe_root + 'python')
 import caffe
 

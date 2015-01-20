@@ -5,6 +5,7 @@
 #include <gflags/gflags.h>
 #include "prettyprint.hpp"
 #include "dqn.hpp"
+#include <opencv2/opencv.hpp>
 
 DEFINE_bool(gpu, true, "Use GPU to brew Caffe");
 DEFINE_bool(gui, false, "Open a GUI window");
@@ -70,6 +71,14 @@ void SaveInputFrames(const dqn::InputFrames& frames, const string filename) {
   ofs.close();
 }
 
+void SaveFramePNG(dqn::FrameData& frame, const string filename) {
+  cv::Mat mat(dqn::kCroppedFrameSize, dqn::kCroppedFrameSize, CV_8UC1, &frame);
+  std::vector<int> compression_params;
+  compression_params.push_back(CV_IMWRITE_PNG_COMPRESSION);
+  compression_params.push_back(9);
+  cv::imwrite(filename, mat, compression_params);
+}
+
 /**
  * Play one episode and return the total score
  */
@@ -84,12 +93,12 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
     if (FLAGS_show_frame) {
       std::cout << dqn::DrawFrame(*current_frame) << std::endl;
     }
-    if (!FLAGS_save_screen.empty()) {
-      std::stringstream ss;
-      ss << FLAGS_save_screen << setfill('0') << setw(5) <<
-          std::to_string(frame) << ".png";
-      SaveScreen(screen, ale, ss.str());
-    }
+    // if (!FLAGS_save_screen.empty()) {
+    //   std::stringstream ss;
+    //   ss << FLAGS_save_screen << setfill('0') << setw(5) <<
+    //       std::to_string(frame) << ".png";
+    //   SaveScreen(screen, ale, ss.str());
+    // }
     past_frames.push_back(current_frame);
     if (past_frames.size() < dqn::kInputFrameCount) {
       // If there are not past frames enough for DQN input, just select NOOP
@@ -108,6 +117,15 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
             std::to_string(binary_save_num++) + ".bin";
         SaveInputFrames(input_frames, fname);
       }
+
+      if (!FLAGS_save_screen.empty()) {
+        static int save_num = 0;
+        dqn::FrameData prediction = dqn.PredictNextFrame(input_frames);
+        string fname = FLAGS_save_screen +
+            std::to_string(save_num++) + ".png";
+        SaveFramePNG(prediction, fname);
+      }
+
       const auto action = dqn.SelectAction(input_frames, epsilon);
       auto immediate_score = 0.0;
       for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {

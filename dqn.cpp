@@ -210,6 +210,7 @@ void DQN::Initialize() {
   assert(HasBlobSize(
       *net_->blob_by_name("target"), kMinibatchSize, 1,
       kCroppedFrameSize, kCroppedFrameSize));
+  deconv_blob_ = net_->blob_by_name("deconv2");
 }
 
 Action DQN::SelectAction(const InputFrames& last_frames, const double epsilon) {
@@ -217,6 +218,28 @@ Action DQN::SelectAction(const InputFrames& last_frames, const double epsilon) {
   const auto random_idx = std::uniform_int_distribution<int>
       (0, legal_actions_.size() - 1)(random_engine);
   return legal_actions_[random_idx];
+}
+
+FrameData DQN::PredictNextFrame(const InputFrames& input_frames) {
+  FramesLayerInputData frames_input;
+  TargetLayerInputData target_input;
+  std::fill(frames_input.begin(), frames_input.end(), 0.0f);
+  std::fill(target_input.begin(), target_input.end(), 0.0f);
+  for (auto j = 0; j < kInputFrameCount; ++j) {
+    const auto& frame_data = input_frames[j];
+    std::copy(frame_data->begin(),
+              frame_data->end(),
+              frames_input.begin() + j * kCroppedFrameDataSize);
+  }
+  InputDataIntoLayers(frames_input, target_input);
+  net_->ForwardPrefilled(nullptr);
+  CHECK_GE(deconv_blob_->count(), kCroppedFrameDataSize)
+      << "Deconvolution Blob lacks data to fill a frame.";
+  const float* deconv_data = deconv_blob_->cpu_data();
+  FrameData reconstructed_frame;
+  std::copy(deconv_data, deconv_data + kCroppedFrameDataSize,
+            reconstructed_frame.begin());
+  return reconstructed_frame;
 }
 
 void DQN::AddTransition(const Transition& transition) {
@@ -252,11 +275,10 @@ void DQN::Update() {
                 target_input.begin() + (i + 1) * kInputDataSize,
                 0.0f);
     } else {
-      // const auto& next_frame_data = std::get<3>(transition);
       const FrameDataSp& next_frame_data = std::get<3>(transition).get();
       std::copy(next_frame_data->begin(),
                 next_frame_data->end(),
-                target_input.begin());
+                target_input.begin() + i * kInputDataSize);
     }
     for (auto j = 0; j < kInputFrameCount; ++j) {
       const auto& frame_data = std::get<0>(transition)[j];

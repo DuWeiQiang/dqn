@@ -70,6 +70,11 @@ public:
   Action SelectAction(const InputFrames& input_frames, double epsilon);
 
   /**
+   * Runs the net forwards and returns the predicted next frame
+   */
+  FrameData PredictNextFrame(const InputFrames& input_frames);
+
+  /**
    * Add a transition to replay memory
    */
   void AddTransition(const Transition& transition);
@@ -104,6 +109,7 @@ private:
   NetSp net_;
   MemoryDataLayerSp frames_input_layer_;
   MemoryDataLayerSp target_input_layer_;
+  BlobSp deconv_blob_;
   TargetLayerInputData dummy_input_data_;
   std::mt19937 random_engine;
 };
