@@ -30,8 +30,7 @@ using Transition = std::tuple<InputFrames, Action,
                               float, boost::optional<FrameDataSp>>;
 
 using FramesLayerInputData = std::array<float, kMinibatchDataSize>;
-using TargetLayerInputData = std::array<float, kMinibatchSize * kOutputCount>;
-using FilterLayerInputData = std::array<float, kMinibatchSize * kOutputCount>;
+using TargetLayerInputData = std::array<float, kMinibatchSize * kCroppedFrameDataSize>;
 
 /**
  * Deep Q-Network
