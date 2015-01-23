@@ -45,6 +45,13 @@ double CalculateEpsilon(const int iter) {
   }
 }
 
+dqn::FrameData DiffScreen(dqn::FrameData& frame1, dqn::FrameData& frame2) {
+  dqn::FrameData diff;
+  std::transform(frame1.begin(), frame1.end(),
+                 frame2.begin(), diff.begin(), std::minus<float>());
+  return diff;
+}
+
 void SaveScreen(const ALEScreen& screen, const ALEInterface& ale,
                 const string filename) {
   IntMatrix screen_matrix;
@@ -120,10 +127,18 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
 
       if (!FLAGS_save_screen.empty()) {
         static int save_num = 0;
-        dqn::FrameData prediction = dqn.PredictNextFrame(input_frames);
-        string fname = FLAGS_save_screen +
-            std::to_string(save_num++) + ".png";
-        SaveFramePNG(prediction, fname);
+        // dqn::FrameData prediction = dqn.PredictNextFrame(input_frames);
+        // string fname = FLAGS_save_screen +
+        //     std::to_string(save_num++) + ".png";
+        // SaveFramePNG(prediction, fname);
+        SaveFramePNG(*input_frames[0].get(),
+                     FLAGS_save_screen + std::to_string(save_num) + "_before.png");
+        SaveFramePNG(*input_frames[1].get(),
+                     FLAGS_save_screen + std::to_string(save_num) + "_after.png");
+        dqn::FrameData diff = DiffScreen(*input_frames[0].get(), *input_frames[1].get());
+        SaveFramePNG(diff,
+                     FLAGS_save_screen + std::to_string(save_num) + "_diff.png");
+        save_num++;
       }
 
       const auto action = dqn.SelectAction(input_frames, epsilon);
