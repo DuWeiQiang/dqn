@@ -127,17 +127,18 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
 
       if (!FLAGS_save_screen.empty()) {
         static int save_num = 0;
-        // dqn::FrameData prediction = dqn.PredictNextFrame(input_frames);
-        // string fname = FLAGS_save_screen +
-        //     std::to_string(save_num++) + ".png";
-        // SaveFramePNG(prediction, fname);
-        SaveFramePNG(*input_frames[0].get(),
-                     FLAGS_save_screen + std::to_string(save_num) + "_before.png");
-        SaveFramePNG(*input_frames[1].get(),
-                     FLAGS_save_screen + std::to_string(save_num) + "_after.png");
-        dqn::FrameData diff = DiffScreen(*input_frames[0].get(), *input_frames[1].get());
-        SaveFramePNG(diff,
-                     FLAGS_save_screen + std::to_string(save_num) + "_diff.png");
+        dqn::FrameData prediction = dqn.PredictNextFrame(input_frames);
+        std::stringstream ss;
+        ss << FLAGS_save_screen << setfill('0') << setw(5) <<
+            std::to_string(save_num) << ".png";
+        SaveFramePNG(prediction, ss.str());
+        // SaveFramePNG(*input_frames[0].get(),
+        //              FLAGS_save_screen + std::to_string(save_num) + "_before.png");
+        // SaveFramePNG(*input_frames[1].get(),
+        //              FLAGS_save_screen + std::to_string(save_num) + "_after.png");
+        // dqn::FrameData diff = DiffScreen(*input_frames[0].get(), *input_frames[1].get());
+        // SaveFramePNG(diff,
+        //              FLAGS_save_screen + std::to_string(save_num) + "_diff.png");
         save_num++;
       }
 

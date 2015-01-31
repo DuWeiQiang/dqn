@@ -31,6 +31,7 @@ using Transition = std::tuple<InputFrames, Action,
 
 using FramesLayerInputData = std::array<float, kMinibatchDataSize>;
 using TargetLayerInputData = std::array<float, kMinibatchSize * kCroppedFrameDataSize>;
+using DummyLayerInputData = std::array<float, kMinibatchSize * kOutputCount>;
 
 /**
  * Deep Q-Network
@@ -109,7 +110,7 @@ private:
   MemoryDataLayerSp frames_input_layer_;
   MemoryDataLayerSp target_input_layer_;
   BlobSp deconv_blob_;
-  TargetLayerInputData dummy_input_data_;
+  DummyLayerInputData dummy_input_data_;
   std::mt19937 random_engine;
 };
 

@@ -237,8 +237,9 @@ FrameData DQN::PredictNextFrame(const InputFrames& input_frames) {
       << "Deconvolution Blob lacks data to fill a frame.";
   const float* deconv_data = deconv_blob_->cpu_data();
   FrameData reconstructed_frame;
-  std::copy(deconv_data, deconv_data + kCroppedFrameDataSize,
-            reconstructed_frame.begin());
+  for (int i=0; i<kCroppedFrameDataSize; ++i) {
+    reconstructed_frame[i] = static_cast<int>(std::max(0.f, deconv_data[i]));
+  }
   return reconstructed_frame;
 }
 
