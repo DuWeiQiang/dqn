@@ -86,6 +86,22 @@ void SaveFramePNG(dqn::FrameData& frame, const string filename) {
   cv::imwrite(filename, mat, compression_params);
 }
 
+void SaveFramesPNG(std::vector<dqn::FrameData>& frames,
+                   const string filename) {
+  cv::Mat mat(dqn::kCroppedFrameSize, dqn::kCroppedFrameSize * frames.size(),
+              CV_8UC1);
+  for (int i=0; i<frames.size(); ++i) {
+    auto& frame = frames[i];
+    cv::Mat tmp(dqn::kCroppedFrameSize, dqn::kCroppedFrameSize, CV_8UC1, &frame);
+    tmp.copyTo(mat.colRange(i * dqn::kCroppedFrameSize,
+                            (i+1) * dqn::kCroppedFrameSize));
+  }
+  std::vector<int> compression_params;
+  compression_params.push_back(CV_IMWRITE_PNG_COMPRESSION);
+  compression_params.push_back(9);
+  cv::imwrite(filename, mat, compression_params);
+}
+
 /**
  * Play one episode and return the total score
  */
@@ -125,23 +141,6 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
         SaveInputFrames(input_frames, fname);
       }
 
-      if (!FLAGS_save_screen.empty()) {
-        static int save_num = 0;
-        dqn::FrameData prediction = dqn.PredictNextFrame(input_frames);
-        std::stringstream ss;
-        ss << FLAGS_save_screen << setfill('0') << setw(5) <<
-            std::to_string(save_num) << ".png";
-        SaveFramePNG(prediction, ss.str());
-        // SaveFramePNG(*input_frames[0].get(),
-        //              FLAGS_save_screen + std::to_string(save_num) + "_before.png");
-        // SaveFramePNG(*input_frames[1].get(),
-        //              FLAGS_save_screen + std::to_string(save_num) + "_after.png");
-        // dqn::FrameData diff = DiffScreen(*input_frames[0].get(), *input_frames[1].get());
-        // SaveFramePNG(diff,
-        //              FLAGS_save_screen + std::to_string(save_num) + "_diff.png");
-        save_num++;
-      }
-
       const auto action = dqn.SelectAction(input_frames, epsilon);
       auto immediate_score = 0.0;
       for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
@@ -155,6 +154,20 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
           immediate_score == 0 ?
               0 :
               immediate_score /= std::abs(immediate_score);
+
+      if (!FLAGS_save_screen.empty() && !ale.game_over()) {
+        static int save_num = 0;
+        dqn::FrameData prediction = dqn.PredictNextFrame(input_frames);
+        dqn::FrameData next_screen = *dqn::PreprocessScreen(ale.getScreen()).get();
+        std::stringstream ss;
+        ss << FLAGS_save_screen << setfill('0') << setw(5) <<
+            std::to_string(save_num) << ".png";
+        SaveFramePNG(prediction, ss.str());
+        std::vector<dqn::FrameData> display_frames = { prediction, next_screen };
+        SaveFramesPNG(display_frames, ss.str());
+        save_num++;
+      }
+
       if (update) {
         // Add the current transition to replay memory
         const auto transition = ale.game_over() ?
