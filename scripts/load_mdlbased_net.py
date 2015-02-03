@@ -34,7 +34,8 @@ def run_forward(image_dir):
 
 # take an array of shape (n, height, width) or (n, height, width, channels)
 #  and visualize each (height, width) thing in a grid of size approx. sqrt(n) by sqrt(n)
-def vis_square(data, padsize=1, padval=0, title='', fname=''):
+def vis_square(input_data, padsize=1, padval=0, title='', fname=''):
+  data = np.copy(input_data)
   data -= data.min()
   data /= data.max()
   # force the number of filters to be square
@@ -91,6 +92,17 @@ def vis_mean_filters(layer_name, fname=''):
           %(layer_name, np.min(filters), np.mean(filters), np.max(filters))
   vis_square(mean_filters, title=title, fname=fname)
 
+# Reshape list specifies how weights should be reshaped
+def vis_fc_incoming_weights(layer_name, activation=None, reshape=None, fname='',
+                            unit=0, num=0):
+  weights = net.params[layer_name][0].data[num,0,unit,:]
+  if reshape is not None:
+    weights = weights.reshape(reshape)
+  title = '[FC Weights] Layer=%s Num=%d Unit=%d Act=%.3f (%.3f,%.3f,%.3f)'\
+          %(layer_name, num, unit, activation,
+            np.min(weights), np.mean(weights), np.max(weights))
+  vis_square(weights, title=title, fname=fname)
+
 # Visualize the activations for a given layer
 def vis_activations(layer_name, fname='', num=0):
   activations = net.blobs[layer_name].data[num]
@@ -99,36 +111,53 @@ def vis_activations(layer_name, fname='', num=0):
             np.max(activations))
   vis_square(activations, padval=1, title=title, fname=fname)
 
+def vis_weights(layer_name, fname=''):
+  weights = net.params[layer_name][0].data[0]
+  title = '[Weights] Layer=%s (%.3f,%.3f,%.3f)'\
+          %(layer_name, np.min(weights), np.mean(weights), np.max(weights))
+  vis_square(weights, title=title, fname=fname)
+
+def vis_biases(layer_name, fname=''):
+  data = net.params[layer_name][1].data
+  num = len(data.flatten())
+  n = int(np.ceil(np.sqrt(num)))
+  viz_data = np.zeros(n**2)
+  viz_data[:num] = data
+  title = '[Biases] Layer=%s Total=%d (%.3f,%.3f,%.3f)'\
+          %(layer_name, num, np.min(data), np.mean(data), np.max(data))
+  plt.imshow(viz_data.reshape((n,n)))
+  plt.title(title)
+  if not fname:
+    plt.show()
+  else:
+    plt.savefig(fname)
+
 # Save all the filters from the current deconvnet structure
-def save_deconvnet_filters(save_dir):
+def xray_deconvnet(save_dir, image_dir):
   if not os.path.exists(save_dir):
     os.makedirs(save_dir)
   for layer in ['conv1_layer', 'conv2_layer']:
     for i in xrange(net.params[layer][0].data.shape[1]):
-      vis_dim(layer, i, join(save_dir, layer + '_dim' + str(i) +'.png'))
+      vis_dim(layer, i, fname=join(save_dir, layer + '_dim' + str(i) +'.png'))
     vis_mean_filters(layer, join(save_dir, layer + '_mean.png'))
+    vis_biases(layer, join(save_dir, layer+'_biases.png'))
+  for layer in ['ip1_layer', 'ip2_layer']:
+    vis_weights(layer, fname=join(save_dir, layer + '_weights.png'))
+    vis_biases(layer, join(save_dir, layer + '_biases.png'))
   for layer in ['deconv1']:
     for i in xrange(net.params[layer][0].data.shape[0]):
       vis_dim(layer, i, join(save_dir, layer + '_dim' + str(i) +'.png'))
     vis_mean_filters(layer, join(save_dir, layer + '_mean.png'))
   vis_filter('deconv2',0, join(save_dir,'deconv2_filter0.png'))
   vis_mean_filters('deconv2', join(save_dir,'deconv2_mean.png'))
-
-def save_deconvnet_activations(save_dir, image_dir):
-  if not os.path.exists(save_dir):
-    os.makedirs(save_dir)
   frames = run_forward(image_dir)
   title = '[Input] Blob=%s Num=%d (%.3f,%.3f,%.3f)'\
           %('frames', 0, np.min(frames), np.mean(frames), np.max(frames))
   vis_square(frames[0], padval=1, title=title,
              fname=join(save_dir,'input_activations.png'))
-  for blob_name in ['conv1', 'conv2', 'deconv1', 'deconv2']:
+  for blob_name in ['conv1', 'conv2', 'ip1', 'ip2', 'deconv1', 'deconv2']:
     vis_activations(blob_name, fname=join(
       save_dir, blob_name + '_activations.png'))
-
-def xray_deconvnet(save_dir='figs', image_dir='screen/pong'):
-  save_deconvnet_activations(save_dir, image_dir)
-  save_deconvnet_filters(save_dir)
 
 if len(sys.argv) < 3:
   raise Exception('usage: load_net.py net.prototxt snapshot.caffemodel')
