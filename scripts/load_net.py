@@ -182,6 +182,82 @@ def xray_dqn(save_dir, image_dir):
                             fname=join(save_dir,'ip1_unit'+str(idx)+'.png'),
                             unit=idx)
 
+# Find the optimal input to maximize a convolutional filter
+def optimize_filter(layer_name, filter_num=0):
+  from scipy.optimize import minimize
+  shape = net.params[layer_name][0].data[filter_num].shape
+  x0 = np.zeros(shape)
+  conv_params = net.params[layer_name][0].data[filter_num]
+  bias = net.params[layer_name][1].data.flatten()[filter_num]
+  fun = lambda x: -(np.inner(x, conv_params.flatten()) + bias)
+  res = minimize(fun, x0)
+  return res.x.reshape(shape).astype(np.float32), res
+
+# Locate the image that maximizes the activation of a given unit
+def find_optimizing_image(layer_name, blob_name, image_dir, save_dir,
+                          stride=4, kernel_size=8, pad=0):
+  assert layer_name in net.params
+  assert blob_name in net.blobs
+  assert pad == 0
+  assert os.path.isdir(image_dir)
+  batch_size = net.blobs['frames'].data.shape[0]
+  files = [f for f in os.listdir(image_dir) if isfile(join(image_dir,f)) ]
+  def load_frame_data(fname):
+    return np.fromfile(open(fname,'rb'), dtype=np.uint8) \
+             .reshape(4,84,84).astype(np.float32)
+  n_filters = net.params[layer_name][0].data.shape[0]
+  max_activations = np.zeros(n_filters).astype(np.float32)
+  max_activations.fill('-inf')
+  patches = [None] * n_filters
+  locations = [None] * n_filters
+  reference_images = [None] * n_filters
+  for batch in xrange(int(len(files) / batch_size)):
+    image_batch = []
+    for i in xrange(batch_size):
+      fname = join(image_dir, files[batch * batch_size + i])
+      image_batch.append(load_frame_data(fname))
+    input_frames = np.asarray(image_batch)
+    forward_from_frames(input_frames)
+    for filter in xrange(n_filters):
+      filter_act = net.blobs[blob_name].data[:,filter,:,:]
+      max_act = np.max(filter_act)
+      if max_act > max_activations[filter]:
+        max_activations[filter] = max_act
+        max_loc = np.unravel_index(filter_act.argmax(), filter_act.shape)
+        assert max_activations[filter] == filter_act[max_loc]
+        max_n, max_y, max_x = max_loc
+        print 'Found max act %f for filter %d'%(max_act, filter)
+        reference_images[filter] = np.copy(input_frames[max_n])
+        # Which region of the input image generated this activation?
+        input_y, input_x = (max_y * stride - pad, max_x * stride - pad)
+        locations[filter] = (input_y, input_x)
+        # print 'Input Region (%d:%d,%d:%d)'\
+        #   %(input_y,input_y+kernel_size,input_x,input_x+kernel_size)
+        patch = input_frames[max_n,:,input_y:input_y+kernel_size,
+                             input_x:input_x+kernel_size]
+        # Double check the convolution
+        conv_params = net.params[layer_name][0].data[filter]
+        bias = net.params[layer_name][1].data.flatten()[filter]
+        act_check = np.inner(patch.flatten(), conv_params.flatten()) + bias
+        assert np.allclose(act_check, max_act)
+        patches[filter] = patch
+  for filter in xrange(n_filters):
+    fname = join(save_dir, '%s_filter%d.png'%(layer_name, filter))
+    vis_filter(layer_name, filter, fname=fname)
+    title = '[MaxPatch] Layer=%s FilterNum=%d Activation=%0.f (y,x)=(%d:%d, %d:%d)'\
+            %(layer_name, filter, max_activations[filter],
+              locations[filter][0], locations[filter][0] + kernel_size,
+              locations[filter][1], locations[filter][1] + kernel_size)
+    fname = join(save_dir, '%s_filter%d_maxact.png'%(layer_name, filter))
+    vis_square(patches[filter], padval=1, title=title, fname=fname)
+    fname = join(save_dir, '%s_filter%d_reference_frames.png'%(layer_name, filter))
+    vis_square(reference_images[filter], padval=1, title='Reference Image', fname=fname)
+
+def test():
+  vis_filter('conv1_layer', 10, fname='f10.png')
+  opt, res = optimize_filter('conv1_layer', 10)
+  vis_square(opt, title='Optimized inputs', fname='opt10.png')
+
 if len(sys.argv) < 3:
   raise Exception('usage: load_net.py net.prototxt snapshot.caffemodel')
 else:
