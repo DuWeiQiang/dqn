@@ -46,6 +46,10 @@ layers {
   type: CONVOLUTION
   bottom: "frames"
   top: "conv1"
+  blobs_lr: 1          # learning rate multiplier for the filters
+  blobs_lr: 2          # learning rate multiplier for the biases
+  weight_decay: 1      # weight decay multiplier for the filters
+  weight_decay: 0      # weight decay multiplier for the biases
   convolution_param {
     num_output: 16
     kernel_size: 8
@@ -70,6 +74,10 @@ layers {
   type: CONVOLUTION
   bottom: "conv1"
   top: "conv2"
+  blobs_lr: 1          # learning rate multiplier for the filters
+  blobs_lr: 2          # learning rate multiplier for the biases
+  weight_decay: 1      # weight decay multiplier for the filters
+  weight_decay: 0      # weight decay multiplier for the biases
   convolution_param {
     num_output: 32
     kernel_size: 4
