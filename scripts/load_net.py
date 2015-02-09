@@ -4,7 +4,7 @@ from os.path import join, isfile
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
-from random import choice
+from random import seed, choice
 caffe_root = '/u/mhauskn/projects/muupan_caffe/'
 sys.path.insert(0, caffe_root + 'python')
 import caffe
@@ -74,6 +74,7 @@ def vis_square(input_data, padsize=1, padval=0, title='', fname=''):
     (n, n) + data.shape[1:]).transpose(
       (0, 2, 1, 3) + tuple(range(4, data.ndim + 1)))
   data = data.reshape((n * data.shape[1], n * data.shape[3]) + data.shape[4:])
+  plt.clf()
   plt.imshow(data)
   plt.title(title)
   if not fname:
@@ -116,7 +117,7 @@ def vis_activations(layer_name, fname='', num=0):
   title = '[Activations] Blob=%s Num=%d (%.3f,%.3f,%.3f)'\
           %(layer_name, num, np.min(activations), np.mean(activations),
             np.max(activations))
-  vis_square(activations, title=title, fname=fname)
+  vis_square(activations, title=title, fname=fname, padval=1)
 
 # Reshape list specifies how weights should be reshaped
 def vis_fc_incoming_weights(layer_name, activation=None, reshape=None, fname='',
@@ -163,16 +164,20 @@ def xray_dqn(save_dir, image_dir):
   for layer in ['ip1_layer', 'ip2_layer']:
     vis_weights(layer, fname=join(save_dir, layer + '_weights.png'))
     vis_biases(layer, join(save_dir, layer + '_biases.png'))
-  # Visualize the Inputs
+  # Visualize the Activations
+  act_dir = join(save_dir, 'activations')
+  if not os.path.exists(act_dir):
+    os.makedirs(act_dir)
   frames = run_forward(image_dir)
-  title = '[Input] Blob=%s Num=%d (%.3f,%.3f,%.3f)'\
-          %('frames', 0, np.min(frames), np.mean(frames), np.max(frames))
-  vis_square(frames[0], padval=1, title=title,
-             fname=join(save_dir,'input_activations.png'))
-  # Visualize the activations
-  for blob_name in ['conv1', 'conv2', 'ip1', 'q_values']:
-    vis_activations(blob_name, fname=join(
-      save_dir, blob_name + '_activations.png'))
+  for i in xrange(frames.shape[0]):
+    title = '[Input] Blob=%s Num=%d (%.3f,%.3f,%.3f)'\
+            %('frames', i, np.min(frames), np.mean(frames), np.max(frames))
+    vis_square(frames[i], padval=1, title=title,
+               fname=join(act_dir,'input_activations_' + str(i) + '.png'))
+    # Visualize the activations
+    for blob_name in ['conv1', 'conv2', 'ip1', 'q_values']:
+      vis_activations(blob_name, num=i, fname=join(
+        act_dir, blob_name + '_activations_' + str(i) + '.png'))
   # Visualize the most active FC-1 nodes
   sorted_activations = np.argsort(net.blobs['ip1'].data[0].flatten())[::-1]
   for i in xrange(5):
@@ -181,8 +186,13 @@ def xray_dqn(save_dir, image_dir):
     vis_fc_incoming_weights('ip1_layer', activation, [32,9,9],
                             fname=join(save_dir,'ip1_unit'+str(idx)+'.png'),
                             unit=idx)
+  # Visualize the maximizing patches
+  patch_dir = join(save_dir,'maximizing_patches')
+  os.makedirs(patch_dir)
+  save_maximizing_patches('conv1_layer','conv1', image_dir, patch_dir)
+  save_maximizing_patches('conv2_layer','conv2', image_dir, patch_dir)
 
-# Find the optimal input to maximize a convolutional filter
+# Use scipy.optimize to find the optimal input to maximize a convolutional filter
 def optimize_filter(layer_name, filter_num=0):
   from scipy.optimize import minimize
   shape = net.params[layer_name][0].data[filter_num].shape
@@ -193,12 +203,33 @@ def optimize_filter(layer_name, filter_num=0):
   res = minimize(fun, x0)
   return res.x.reshape(shape).astype(np.float32), res
 
+# Returns the input pixel region that generated the given layer's activation
+# location: (y, x) or (y_min, y_max, x_min, x_max)
+def get_input_patch(layer_name, location):
+  if len(location) == 2:
+    location = (location[0], location[0], location[1], location[1])
+  if layer_name == 'conv1_layer':
+    return get_lower_layer_patch(location, stride=4, kernel_size=8)
+  elif layer_name == 'conv2_layer':
+    conv1_patch = get_lower_layer_patch(location, stride=2, kernel_size=4)
+    return get_input_patch('conv1_layer', conv1_patch)
+  else:
+    raise Exception('Layer Not Supported')
+
+# to_patch: region of (y_min, y_max, x_min, x_max)
+def get_lower_layer_patch(to_patch, stride, kernel_size):
+  y_min, y_max, x_min, x_max = to_patch
+  input_y_min, input_x_min = (y_min * stride, x_min * stride)
+  input_y_max, input_x_max = (y_max * stride + kernel_size,
+                              x_max * stride + kernel_size)
+  return (input_y_min, input_y_max, input_x_min, input_x_max)
+
 # Locate the image that maximizes the activation of a given unit
-def find_optimizing_image(layer_name, blob_name, image_dir, save_dir,
-                          stride=4, kernel_size=8, pad=0):
+def save_maximizing_patches(layer_name, blob_name, image_dir, save_dir,
+                            stride=4, kernel_size=8, pad=0):
   assert layer_name in net.params
   assert blob_name in net.blobs
-  assert pad == 0
+
   assert os.path.isdir(image_dir)
   batch_size = net.blobs['frames'].data.shape[0]
   files = [f for f in os.listdir(image_dir) if isfile(join(image_dir,f)) ]
@@ -230,24 +261,23 @@ def find_optimizing_image(layer_name, blob_name, image_dir, save_dir,
         reference_images[filter] = np.copy(input_frames[max_n])
         # Which region of the input image generated this activation?
         input_y, input_x = (max_y * stride - pad, max_x * stride - pad)
-        locations[filter] = (input_y, input_x)
-        # print 'Input Region (%d:%d,%d:%d)'\
-        #   %(input_y,input_y+kernel_size,input_x,input_x+kernel_size)
-        patch = input_frames[max_n,:,input_y:input_y+kernel_size,
-                             input_x:input_x+kernel_size]
-        # Double check the convolution
-        conv_params = net.params[layer_name][0].data[filter]
-        bias = net.params[layer_name][1].data.flatten()[filter]
-        act_check = np.inner(patch.flatten(), conv_params.flatten()) + bias
-        assert np.allclose(act_check, max_act)
+        in_patch = get_input_patch(layer_name, (max_y, max_x))
+        locations[filter] = in_patch
+        patch = input_frames[max_n,:,in_patch[0]:in_patch[1], in_patch[2]:in_patch[3]]
+        print 'Input Patch:', locations[filter]
         patches[filter] = patch
+        # Double check the convolution
+        # conv_params = net.params[layer_name][0].data[filter]
+        # bias = net.params[layer_name][1].data.flatten()[filter]
+        # act_check = np.inner(patch.flatten(), conv_params.flatten()) + bias
+        # assert np.allclose(act_check, max_act)
   for filter in xrange(n_filters):
     fname = join(save_dir, '%s_filter%d.png'%(layer_name, filter))
     vis_filter(layer_name, filter, fname=fname)
     title = '[MaxPatch] Layer=%s FilterNum=%d Activation=%0.f (y,x)=(%d:%d, %d:%d)'\
             %(layer_name, filter, max_activations[filter],
-              locations[filter][0], locations[filter][0] + kernel_size,
-              locations[filter][1], locations[filter][1] + kernel_size)
+              locations[filter][0], locations[filter][1],
+              locations[filter][2], locations[filter][3])
     fname = join(save_dir, '%s_filter%d_maxact.png'%(layer_name, filter))
     vis_square(patches[filter], padval=1, title=title, fname=fname)
     fname = join(save_dir, '%s_filter%d_reference_frames.png'%(layer_name, filter))
@@ -258,9 +288,10 @@ def test():
   opt, res = optimize_filter('conv1_layer', 10)
   vis_square(opt, title='Optimized inputs', fname='opt10.png')
 
-if len(sys.argv) < 3:
-  raise Exception('usage: load_net.py net.prototxt snapshot.caffemodel')
+if len(sys.argv) < 5:
+  raise Exception('usage: load_net.py net.prototxt snapshot.caffemodel save_dir image_dir')
 else:
+  seed(123)
   net = caffe.Net(sys.argv[1], sys.argv[2])
   net.set_phase_test()
   net.set_mode_cpu()
@@ -270,3 +301,7 @@ else:
   print 'net.params:'
   for k, v in net.params.items():
     print (k, v[0].data.shape)
+  save_dir = sys.argv[3]
+  image_dir = sys.argv[4]
+  xray_dqn(save_dir, image_dir)
+  exit()
