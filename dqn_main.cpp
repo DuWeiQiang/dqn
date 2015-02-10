@@ -9,7 +9,7 @@
 // DQN Parameters
 DEFINE_bool(gpu, true, "Use GPU to brew Caffe");
 DEFINE_bool(gui, false, "Open a GUI window");
-DEFINE_string(rom, "roms/pong.bin", "Atari 2600 ROM to play");
+DEFINE_string(roms, "", "Comma separated list of Atari 2600 ROMs to play");
 DEFINE_int32(memory, 400000, "Capacity of replay memory");
 DEFINE_int32(explore, 1000000, "Number of iterations needed for epsilon to reach given value.");
 DEFINE_double(epsilon, 0.05, "Value of epsilon reached after explore iterations.");
@@ -24,6 +24,7 @@ DEFINE_string(snapshot, "", "The solver state to load (*.solverstate).");
 DEFINE_bool(evaluate, false, "Evaluation mode: only playing a game, no updates");
 DEFINE_double(evaluate_with_epsilon, 0.05, "Epsilon value to be used in evaluation mode");
 DEFINE_double(repeat_games, 10, "Number of games played in evaluation mode");
+DEFINE_int32(steps_per_session, 10000, "Steps to play each game before rotating.");
 // Solver Parameters
 DEFINE_string(solver, "", "Solver parameter file (*.prototxt)");
 DEFINE_string(solver_type, "ADADELTA", "Type of solver.");
@@ -73,76 +74,112 @@ void SaveInputFrames(const dqn::InputFrames& frames, const string filename) {
 }
 
 /**
+ * Play a single frame and return the score.
+ */
+double PlayOneFrame(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
+                    const bool update, std::deque<dqn::FrameDataSp>& past_frames) {
+  auto score = 0.0;
+  const ALEScreen& screen = ale.getScreen();
+  const auto current_frame = dqn::PreprocessScreen(screen);
+  if (FLAGS_show_frame) {
+    std::cout << dqn::DrawFrame(*current_frame) << std::endl;
+  }
+  if (!FLAGS_save_screen.empty()) {
+    static int screen_save_num = 0;
+    std::stringstream ss;
+    ss << FLAGS_save_screen << setfill('0') << setw(5) <<
+        std::to_string(screen_save_num) << ".png";
+    screen_save_num++;
+    SaveScreen(screen, ale, ss.str());
+  }
+  past_frames.push_back(current_frame);
+  if (past_frames.size() < dqn::kInputFrameCount) {
+    // If there are not past frames enough for DQN input, just select NOOP
+    for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
+      score += ale.act(PLAYER_A_NOOP);
+    }
+  } else {
+    while (past_frames.size() > dqn::kInputFrameCount) {
+      past_frames.pop_front();
+    }
+    dqn::InputFrames input_frames;
+    std::copy(past_frames.begin(), past_frames.end(), input_frames.begin());
+    if (!FLAGS_save_binary_screen.empty()) {
+      static int binary_save_num = 0;
+      string fname = FLAGS_save_binary_screen +
+          std::to_string(binary_save_num++) + ".bin";
+      SaveInputFrames(input_frames, fname);
+    }
+    const auto action = dqn.SelectAction(input_frames, epsilon);
+    auto immediate_score = 0.0;
+    for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
+      // Last action is repeated on skipped frames
+      immediate_score += ale.act(action);
+    }
+    score += immediate_score;
+    // Rewards for DQN are normalized as follows:
+    // 1 for any positive score, -1 for any negative score, otherwise 0
+    const auto reward =
+        immediate_score == 0 ?
+        0 :
+        immediate_score /= std::abs(immediate_score);
+    if (update) {
+      // Add the current transition to replay memory
+      const auto transition = ale.game_over() ?
+          dqn::Transition(input_frames, action, reward, boost::none) :
+          dqn::Transition(
+              input_frames,
+              action,
+              reward,
+              dqn::PreprocessScreen(ale.getScreen()));
+      dqn.AddTransition(transition);
+      // If the size of replay memory is enough, update DQN
+      if (dqn.memory_size() > FLAGS_memory_threshold) {
+        dqn.Update();
+      }
+    }
+  }
+  return score;
+}
+
+/**
  * Play one episode and return the total score
  */
 double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
                       const bool update) {
   CHECK(!ale.game_over());
   std::deque<dqn::FrameDataSp> past_frames;
-  auto total_score = 0.0;
+  auto episode_score = 0.0;
   for (auto frame = 0; !ale.game_over(); ++frame) {
-    const ALEScreen& screen = ale.getScreen();
-    const auto current_frame = dqn::PreprocessScreen(screen);
-    if (FLAGS_show_frame) {
-      std::cout << dqn::DrawFrame(*current_frame) << std::endl;
-    }
-    if (!FLAGS_save_screen.empty()) {
-      std::stringstream ss;
-      ss << FLAGS_save_screen << setfill('0') << setw(5) <<
-          std::to_string(frame) << ".png";
-      SaveScreen(screen, ale, ss.str());
-    }
-    past_frames.push_back(current_frame);
-    if (past_frames.size() < dqn::kInputFrameCount) {
-      // If there are not past frames enough for DQN input, just select NOOP
-      for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
-        total_score += ale.act(PLAYER_A_NOOP);
-      }
-    } else {
-      while (past_frames.size() > dqn::kInputFrameCount) {
-        past_frames.pop_front();
-      }
-      dqn::InputFrames input_frames;
-      std::copy(past_frames.begin(), past_frames.end(), input_frames.begin());
-      if (!FLAGS_save_binary_screen.empty()) {
-        static int binary_save_num = 0;
-        string fname = FLAGS_save_binary_screen +
-            std::to_string(binary_save_num++) + ".bin";
-        SaveInputFrames(input_frames, fname);
-      }
-      const auto action = dqn.SelectAction(input_frames, epsilon);
-      auto immediate_score = 0.0;
-      for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
-        // Last action is repeated on skipped frames
-        immediate_score += ale.act(action);
-      }
-      total_score += immediate_score;
-      // Rewards for DQN are normalized as follows:
-      // 1 for any positive score, -1 for any negative score, otherwise 0
-      const auto reward =
-          immediate_score == 0 ?
-              0 :
-              immediate_score /= std::abs(immediate_score);
-      if (update) {
-        // Add the current transition to replay memory
-        const auto transition = ale.game_over() ?
-            dqn::Transition(input_frames, action, reward, boost::none) :
-            dqn::Transition(
-                input_frames,
-                action,
-                reward,
-                dqn::PreprocessScreen(ale.getScreen()));
-        dqn.AddTransition(transition);
-        // If the size of replay memory is enough, update DQN
-        if (dqn.memory_size() > FLAGS_memory_threshold) {
-          dqn.Update();
-        }
-      }
+    episode_score += PlayOneFrame(ale, dqn, epsilon, update, past_frames);
+  }
+  ale.reset_game();
+  return episode_score;
+}
+
+/**
+ * Play until you reach the frame limit. Return the total score.
+ */
+double PlaySession(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
+                   const bool update, int max_frames) {
+  CHECK(!ale.game_over());
+  std::deque<dqn::FrameDataSp> past_frames;
+  auto total_score = 0.0;
+  auto episode_score = 0.0;
+  for (auto frame = 0; frame < max_frames; ++frame) {
+    episode_score += PlayOneFrame(ale, dqn, epsilon, update, past_frames);
+    if (ale.game_over()) {
+      LOG(INFO) << "Episode ended with score = " << episode_score;
+      ale.reset_game();
+      past_frames.clear();
+      total_score += episode_score;
+      episode_score = 0.0;
     }
   }
   ale.reset_game();
   return total_score;
 }
+
 
 /**
  * Evaluate the current player
@@ -161,6 +198,24 @@ void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
       total_score / static_cast<double>(FLAGS_repeat_games) << std::endl;
 }
 
+std::vector<std::string> &split(const std::string &s, char delim,
+                                std::vector<std::string> &elems) {
+  std::stringstream ss(s);
+  std::string item;
+  while (std::getline(ss, item, delim)) {
+    if (!item.empty()) {
+      elems.push_back(item);
+    }
+  }
+  return elems;
+}
+
+std::vector<std::string> split(const std::string &s, char delim) {
+  std::vector<std::string> elems;
+  split(s, delim, elems);
+  return elems;
+}
+
 int main(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
@@ -177,11 +232,21 @@ int main(int argc, char** argv) {
   ale.set("display_screen", FLAGS_gui);
   ale.set("disable_color_averaging", true);
 
-  // Load the ROM file
-  ale.loadROM(FLAGS_rom);
+  std::vector<std::string> roms = split(FLAGS_roms, ',');
+  // for (auto rom : split(FLAGS_roms, ',')) {
+  //   cout << rom << endl;
 
-  // Get the vector of legal actions
-  const auto legal_actions = ale.getMinimalActionSet();
+  // Get the union of legal actions in each of the roms
+  std::vector<Action> legal_actions;
+  for (auto rom : roms) {
+    ale.loadROM(rom);
+    for (auto action : ale.getMinimalActionSet()) {
+      if (std::find(legal_actions.begin(), legal_actions.end(), action) ==
+          legal_actions.end()) {
+        legal_actions.push_back(action);
+      }
+    }
+  }
 
   CHECK(FLAGS_snapshot.empty() || FLAGS_weights.empty())
       << "Give a snapshot to resume training or weights to finetune "
@@ -230,14 +295,18 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  auto episode = 0;
+  auto session = 0;
   while (dqn.current_iteration() < solver_param.max_iter()) {
     const auto epsilon = CalculateEpsilon(dqn.current_iteration());
-    const auto score = PlayOneEpisode(ale, dqn, epsilon, true);
-    LOG(INFO) << "Episode " << episode << ", score = " << score
+    string next_rom = roms[session % roms.size()];
+    ale.loadROM(next_rom);
+    const auto session_score =
+        PlaySession(ale, dqn, epsilon, true, FLAGS_steps_per_session);
+    LOG(INFO) << " Session " << session << " [" << next_rom
+              << "] score = " << session_score
               << ", epsilon = " << epsilon << ", iter = "
               << dqn.current_iteration();
-    episode++;
+    session++;
   }
   Evaluate(ale, dqn);
 };
