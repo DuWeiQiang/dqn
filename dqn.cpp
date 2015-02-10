@@ -271,33 +271,33 @@ void DQN::Update() {
     const auto reward = std::get<2>(transition);
     assert(reward >= -1.0 && reward <= 1.0);
 
-    // Copy the last input frame
-    // const auto& frame_data = std::get<0>(transition)[kInputFrameCount - 1];
-    // std::copy(frame_data->begin(),
-    //           frame_data->end(),
-    //           frames_input.begin() + i * kInputDataSize);
-    // std::copy(frame_data->begin(),
-    //           frame_data->end(),
-    //           target_input.begin() + i * kInputDataSize);
+    // Santiy check : Just try to recreate the input screen
+    const auto& frame_data = std::get<0>(transition)[kInputFrameCount - 1];
+    std::copy(frame_data->begin(),
+              frame_data->end(),
+              frames_input.begin() + i * kInputDataSize);
+    std::copy(frame_data->begin(),
+              frame_data->end(),
+              target_input.begin() + i * kInputDataSize);
 
-    if (!std::get<3>(transition)) {
-      // This is a terminal state. Fill target with zeros
-      std::fill(target_input.begin() + i * kCroppedFrameDataSize,
-                target_input.begin() + (i + 1) * kCroppedFrameDataSize,
-                0.0f);
-    } else {
-      const FrameDataSp& next_frame_data = std::get<3>(transition).get();
-      std::copy(next_frame_data->begin(),
-                next_frame_data->end(),
-                target_input.begin() + i * kCroppedFrameDataSize);
-    }
-    for (auto j = 0; j < kInputFrameCount; ++j) {
-      const auto& frame_data = std::get<0>(transition)[j];
-      std::copy(frame_data->begin(),
-                frame_data->end(),
-                frames_input.begin() + i * kInputDataSize +
-                j * kCroppedFrameDataSize);
-    }
+    // if (!std::get<3>(transition)) {
+    //   // This is a terminal state. Fill target with zeros
+    //   std::fill(target_input.begin() + i * kCroppedFrameDataSize,
+    //             target_input.begin() + (i + 1) * kCroppedFrameDataSize,
+    //             0.0f);
+    // } else {
+    //   const FrameDataSp& next_frame_data = std::get<3>(transition).get();
+    //   std::copy(next_frame_data->begin(),
+    //             next_frame_data->end(),
+    //             target_input.begin() + i * kCroppedFrameDataSize);
+    // }
+    // for (auto j = 0; j < kInputFrameCount; ++j) {
+    //   const auto& frame_data = std::get<0>(transition)[j];
+    //   std::copy(frame_data->begin(),
+    //             frame_data->end(),
+    //             frames_input.begin() + i * kInputDataSize +
+    //             j * kCroppedFrameDataSize);
+    // }
   }
   InputDataIntoLayers(frames_input, target_input);
   solver_->Step(1);
