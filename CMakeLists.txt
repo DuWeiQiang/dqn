@@ -24,6 +24,8 @@ target_link_libraries(dqn glog)
 target_link_libraries(dqn gflags)
 target_link_libraries(dqn ale)
 target_link_libraries(dqn protobuf)
+target_link_libraries(dqn opencv_core)
+target_link_libraries(dqn opencv_highgui)
 
 if(APPLE)
   include_directories(/System/Library/Frameworks/vecLib.framework/Versions/Current/Headers)
