@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys
 from random import seed, choice
-caffe_root = '/u/mhauskn/projects/muupan_caffe/'
+caffe_root = '/u/mhauskn/projects/caffe/'
 sys.path.insert(0, caffe_root + 'python')
 import caffe
 
