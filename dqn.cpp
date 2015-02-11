@@ -78,10 +78,9 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
   assert(raw_screen_height > raw_screen_width);
   const auto raw_pixels = raw_screen.getArray();
   auto screen = std::make_shared<FrameData>();
-  // Crop 4% of the screen evenly from the top & bottom
-  const int cropped_screen_height = static_cast<int>(.92 * raw_screen_height);
-  const int start_y = static_cast<int>(
-      (raw_screen_height - cropped_screen_height) / 2.0f);
+  // Crop the top of the screen
+  const int cropped_screen_height = static_cast<int>(.85 * raw_screen_height);
+  const int start_y = raw_screen_height - cropped_screen_height;
   // Ignore the leftmost column of 8 pixels
   const int start_x = 8;
   const int cropped_screen_width = raw_screen_width - start_x;
