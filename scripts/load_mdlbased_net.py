@@ -26,8 +26,9 @@ def run_forward(image_dir):
     fname = join(image_dir, choice(files))
     images.append(load_frame_data(fname))
   input_frames = np.asarray(images)
+  single_frames = np.ascontiguousarray(np.expand_dims(input_frames[:,0], axis=1))
   targets = np.zeros([batch_size,1,84,84], dtype=np.float32)
-  net.set_input_arrays(0, input_frames, np.zeros([batch_size,1,1,1], dtype=np.float32))
+  net.set_input_arrays(0, single_frames, np.zeros([batch_size,1,1,1], dtype=np.float32))
   net.set_input_arrays(1, targets, np.zeros([batch_size,1,1,1], dtype=np.float32))
   net.forward()
   return input_frames
@@ -150,14 +151,27 @@ def xray_deconvnet(save_dir, image_dir):
     vis_mean_filters(layer, join(save_dir, layer + '_mean.png'))
   vis_filter('deconv2',0, join(save_dir,'deconv2_filter0.png'))
   vis_mean_filters('deconv2', join(save_dir,'deconv2_mean.png'))
+  # Visualize the Activations
+  act_dir = join(save_dir, 'activations')
+  if not os.path.exists(act_dir):
+    os.makedirs(act_dir)
   frames = run_forward(image_dir)
-  title = '[Input] Blob=%s Num=%d (%.3f,%.3f,%.3f)'\
-          %('frames', 0, np.min(frames), np.mean(frames), np.max(frames))
-  vis_square(frames[0], padval=1, title=title,
-             fname=join(save_dir,'input_activations.png'))
-  for blob_name in ['conv1', 'conv2', 'ip1', 'ip2', 'deconv1', 'deconv2']:
-    vis_activations(blob_name, fname=join(
-      save_dir, blob_name + '_activations.png'))
+  for i in xrange(frames.shape[0]):
+    title = '[Input] Blob=%s Num=%d (%.3f,%.3f,%.3f)'\
+            %('frames', i, np.min(frames), np.mean(frames), np.max(frames))
+    vis_square(frames[i], padval=1, title=title,
+               fname=join(act_dir,'input_activations_' + str(i) + '.png'))
+    # Visualize the activations
+    for blob_name in ['conv1', 'conv2', 'ip1', 'ip2', 'deconv1', 'deconv2']:
+      vis_activations(blob_name, num=i, fname=join(
+        act_dir, blob_name + '_activations_' + str(i) + '.png'))
+    # Visualize the reshaped activations
+    reshape_acts = net.blobs['reshape'].data[i]
+    title = 'Blob=%s Num=%d (%.3f,%.3f,%.3f)'\
+            %('reshape', i, np.min(reshape_acts), np.mean(reshape_acts),
+              np.max(reshape_acts))
+    vis_square(reshape_acts, padval=1, title=title,
+               fname=join(act_dir,'reshape_activations_' + str(i) + '.png'))
 
 if len(sys.argv) < 3:
   raise Exception('usage: load_net.py net.prototxt snapshot.caffemodel')
