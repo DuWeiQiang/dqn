@@ -184,18 +184,23 @@ double PlaySession(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
 /**
  * Evaluate the current player
  */
-void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
-  auto total_score = 0.0;
-  std::stringstream ss;
-  for (auto i = 0; i < FLAGS_repeat_games; ++i) {
-    const auto score =
-        PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, false);
-    ss << score << " ";
-    total_score += score;
+void Evaluate(ALEInterface& ale, dqn::DQN& dqn, const vector<string>& roms) {
+  for (auto j = 0; j < roms.size(); ++j) {
+    std::stringstream ss;
+    LOG(INFO) << "Playing " << roms[j];
+    ale.loadROM(roms[j]);
+    auto total_score = 0.0;
+    for (auto i = 0; i < FLAGS_repeat_games; ++i) {
+      // const auto score =
+      //     PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, false);
+      const auto score = PlaySession(ale, dqn, FLAGS_evaluate_with_epsilon, false, 500);
+      ss << score << " ";
+      total_score += score;
+    }
+    LOG(INFO) << "Evaluation scores: " << ss.str();
+    LOG(INFO) << "Average score: " <<
+        total_score / static_cast<double>(FLAGS_repeat_games) << std::endl;
   }
-  LOG(INFO) << "Evaluation scores: " << ss.str();
-  LOG(INFO) << "Average score: " <<
-      total_score / static_cast<double>(FLAGS_repeat_games) << std::endl;
 }
 
 std::vector<std::string> &split(const std::string &s, char delim,
@@ -291,7 +296,7 @@ int main(int argc, char** argv) {
   }
 
   if (FLAGS_evaluate) {
-    Evaluate(ale, dqn);
+    Evaluate(ale, dqn, roms);
     return 0;
   }
 
@@ -308,5 +313,5 @@ int main(int argc, char** argv) {
               << dqn.current_iteration();
     session++;
   }
-  Evaluate(ale, dqn);
+  Evaluate(ale, dqn, roms);
 };
