@@ -174,8 +174,8 @@ int main(int argc, char** argv) {
   }
 
   ALEInterface ale;
-  ale.setBool("display_screen", FLAGS_gui);
-  ale.setBool("disable_color_averaging", true);
+  ale.set("display_screen", FLAGS_gui);
+  ale.set("disable_color_averaging", true);
 
   // Load the ROM file
   ale.loadROM(FLAGS_rom);
