@@ -187,7 +187,6 @@ void DQN::Initialize() {
   // Initialize net and solver
   solver_.reset(caffe::GetSolver<float>(solver_param_));
   net_ = solver_->net();
-  
 
   // Cache pointers to blobs that hold Q values
   q_values_blob_ = net_->blob_by_name("q_values");
