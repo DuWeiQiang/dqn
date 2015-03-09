@@ -57,7 +57,7 @@ void SaveScreen(const ALEScreen& screen, const ALEInterface& ale,
     }
     screen_matrix.emplace_back(row_vec);
   }
-  ale.theOSystem->p_export_screen->save_png(&screen_matrix, filename);
+  // ale.theOSystem->p_export_screen->save_png(&screen_matrix, filename);
 }
 
 void SaveInputFrames(const dqn::InputFrames& frames, const string filename) {
@@ -174,8 +174,8 @@ int main(int argc, char** argv) {
   }
 
   ALEInterface ale;
-  ale.set("display_screen", FLAGS_gui);
-  ale.set("disable_color_averaging", true);
+  ale.setBool("display_screen", FLAGS_gui);
+  ale.setBool("disable_color_averaging", true);
 
   // Load the ROM file
   ale.loadROM(FLAGS_rom);
