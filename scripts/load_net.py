@@ -179,13 +179,13 @@ def xray_dqn(save_dir, image_dir):
       vis_activations(blob_name, num=i, fname=join(
         act_dir, blob_name + '_activations_' + str(i) + '.png'))
   # Visualize the most active FC-1 nodes
-  sorted_activations = np.argsort(net.blobs['ip1'].data[0].flatten())[::-1]
-  for i in xrange(5):
-    idx = sorted_activations[i]
-    activation = net.blobs['ip1'].data[0].flatten()[idx]
-    vis_fc_incoming_weights('ip1_layer', activation, [32,9,9],
-                            fname=join(save_dir,'ip1_unit'+str(idx)+'.png'),
-                            unit=idx)
+  # sorted_activations = np.argsort(net.blobs['ip1'].data[0].flatten())[::-1]
+  # for i in xrange(5):
+  #   idx = sorted_activations[i]
+  #   activation = net.blobs['ip1'].data[0].flatten()[idx]
+  #   vis_fc_incoming_weights('ip1_layer', activation, [32,9,9],
+  #                           fname=join(save_dir,'ip1_unit'+str(idx)+'.png'),
+  #                           unit=idx)
   # Visualize the maximizing patches
   patch_dir = join(save_dir,'maximizing_patches')
   os.makedirs(patch_dir)
