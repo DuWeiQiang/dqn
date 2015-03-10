@@ -26,14 +26,14 @@ DEFINE_double(evaluate_with_epsilon, .05, "Epsilon value to be used in evaluatio
 DEFINE_int32(repeat_games, 10, "Number of games played in evaluation mode");
 // Solver Parameters
 DEFINE_string(solver, "", "Solver parameter file (*.prototxt)");
-DEFINE_string(solver_type, "ADADELTA", "Type of solver.");
+DEFINE_string(solver_type, "RMSPROP", "Type of solver.");
 DEFINE_string(model, "dqn.prototxt", "The model definition (*.prototxt).");
 DEFINE_double(momentum, 0.95, "Solver momentum");
-DEFINE_double(base_lr, 0.1, "Solver base learning rate");
-DEFINE_string(lr_policy, "step", "Solver lr policy");
+DEFINE_double(base_lr, 0.00025, "Solver base learning rate");
+DEFINE_string(lr_policy, "fixed", "Solver lr policy");
 DEFINE_double(solver_gamma, 0.1, "Solver gamma");
 DEFINE_int32(stepsize, 10000000, "Solver stepsize");
-DEFINE_int32(max_iter, 10000000, "Maximum number of iterations");
+DEFINE_int32(max_iter, 50000000, "Maximum number of iterations");
 DEFINE_int32(snapshot_frequency, 1000000, "Snapshot frequency in iterations");
 DEFINE_int32(display, 10000, "Display frequency in iterations");
 DEFINE_string(snapshot_prefix, "state/dqn", "Prefix for saving snapshots");
