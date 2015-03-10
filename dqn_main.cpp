@@ -58,7 +58,7 @@ void SaveScreen(const ALEScreen& screen, const ALEInterface& ale,
     }
     screen_matrix.emplace_back(row_vec);
   }
-  // ale.theOSystem->p_export_screen->save_png(&screen_matrix, filename);
+  ale.theOSystem->p_export_screen->save_png(&screen_matrix, filename);
 }
 
 void SaveInputFrames(const dqn::InputFrames& frames, const string filename) {
@@ -83,16 +83,13 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
   auto total_score = 0.0;
   for (auto frame = 0; !ale.game_over(); ++frame) {
     const ALEScreen& screen = ale.getScreen();
-    const auto current_frame = dqn::PreprocessScreen(screen);
-    if (FLAGS_show_frame) {
-      std::cout << dqn::DrawFrame(*current_frame) << std::endl;
-    }
     if (!FLAGS_save_screen.empty()) {
       std::stringstream ss;
       ss << FLAGS_save_screen << setfill('0') << setw(5) <<
           std::to_string(frame) << ".png";
       SaveScreen(screen, ale, ss.str());
     }
+    const auto current_frame = dqn::PreprocessScreen(screen);
     past_frames.push_back(current_frame);
     if (past_frames.size() < dqn::kInputFrameCount) {
       // If there are not past frames enough for DQN input, just select NOOP
@@ -114,27 +111,22 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
       const auto action = dqn.SelectAction(input_frames, epsilon);
       auto immediate_score = 0.0;
       for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
-        // Last action is repeated on skipped frames
         immediate_score += ale.act(action);
       }
       total_score += immediate_score;
       // Rewards for DQN are normalized as follows:
       // 1 for any positive score, -1 for any negative score, otherwise 0
-      const auto reward =
-          immediate_score == 0 ?
-              0 :
-              immediate_score /= std::abs(immediate_score);
+      const auto reward = immediate_score == 0 ? 0 : immediate_score /
+          std::abs(immediate_score);
+      assert(reward <= 1 && reward >= -1);
       if (update) {
         // Add the current transition to replay memory
         const auto transition = ale.game_over() ?
             dqn::Transition(input_frames, action, reward, boost::none) :
-            dqn::Transition(
-                input_frames,
-                action,
-                reward,
-                dqn::PreprocessScreen(ale.getScreen()));
+            dqn::Transition(input_frames, action, reward,
+                            dqn::PreprocessScreen(ale.getScreen()));
         dqn.AddTransition(transition);
-        // If the size of replay memory is enough, update DQN
+        // If the size of replay memory is large enough, update DQN
         if (dqn.memory_size() > FLAGS_memory_threshold) {
           dqn.Update();
         }
@@ -211,7 +203,8 @@ int main(int argc, char** argv) {
     solver_param.set_snapshot_prefix(FLAGS_snapshot_prefix);
   }
 
-  dqn::DQN dqn(legal_actions, solver_param, FLAGS_memory, FLAGS_gamma);
+  dqn::DQN dqn(legal_actions, solver_param, FLAGS_memory, FLAGS_gamma,
+               FLAGS_clone_freq);
   dqn.Initialize();
 
   if (!FLAGS_save_screen.empty()) {
