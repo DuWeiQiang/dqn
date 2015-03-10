@@ -240,8 +240,8 @@ std::vector<ActionValue> DQN::SelectActionGreedily(
     const std::vector<InputFrames>& last_frames_batch) {
   assert(last_frames_batch.size() <= kMinibatchSize);
   std::array<float, kMinibatchDataSize> frames_input;
+  // Input frames to the net and compute Q values for each legal actions
   for (auto i = 0; i < last_frames_batch.size(); ++i) {
-    // Input frames to the net and compute Q values for each legal actions
     for (auto j = 0; j < kInputFrameCount; ++j) {
       const auto& frame_data = last_frames_batch[i][j];
       std::copy(frame_data->begin(),
@@ -252,7 +252,7 @@ std::vector<ActionValue> DQN::SelectActionGreedily(
   }
   InputDataIntoLayers(frames_input, dummy_input_data_, dummy_input_data_);
   net_->ForwardPrefilled(nullptr);
-
+  // Collect the Results
   std::vector<ActionValue> results;
   results.reserve(last_frames_batch.size());
   for (auto i = 0; i < last_frames_batch.size(); ++i) {
@@ -263,15 +263,8 @@ std::vector<ActionValue> DQN::SelectActionGreedily(
       return q;
     };
     std::vector<float> q_values(legal_actions_.size());
-    std::transform(
-        legal_actions_.begin(),
-        legal_actions_.end(),
-        q_values.begin(),
-        action_evaluator);
-    // if (last_frames_batch.size() == 1) {
-    //   std::cout << PrintQValues(q_values, legal_actions_);
-    // }
-
+    std::transform(legal_actions_.begin(), legal_actions_.end(),
+                   q_values.begin(), action_evaluator);
     // Select the action with the maximum Q value
     const auto max_idx = std::distance(
         q_values.begin(),
@@ -364,7 +357,6 @@ void DQN::clonePrimaryNet() {
   net_->ToProto(&net_param);
   clone_net_.reset(new caffe::Net<float>(net_param));
 }
-
 
 void DQN::InputDataIntoLayers(
       const FramesLayerInputData& frames_input,

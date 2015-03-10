@@ -51,57 +51,50 @@ public:
         gamma_(gamma),
         random_engine(0) {}
 
-  /**
-   * Initialize DQN. Must be called before calling any other method.
-   */
+  // Initialize DQN. Must be called before calling any other method.
   void Initialize();
 
-  /**
-   * Load a trained model from a file.
-   */
+  // Load a trained model from a file.
   void LoadTrainedModel(const std::string& model_file);
 
-  /**
-   * Restore solving from a solver file.
-   */
+  // Restore solving from a solver file.
   void RestoreSolver(const std::string& solver_file);
 
-  /**
-   * Select an action by epsilon-greedy.
-   */
+  // Select an action by epsilon-greedy.
   Action SelectAction(const InputFrames& input_frames, double epsilon);
 
-  /**
-   * Add a transition to replay memory
-   */
+  // Add a transition to replay memory
   void AddTransition(const Transition& transition);
 
-  /**
-   * Update DQN using one minibatch
-   */
+  // Update DQN using one minibatch
   void Update();
-
-  /**
-   * Clone the Primary network and store the result in clone_net_
-   */
-  void clonePrimaryNet();
-
   int memory_size() const { return replay_memory_.size(); }
   int current_iteration() const { return solver_->iter(); }
+
+protected:
+  // Clone the Primary network and store the result in clone_net_
+  void clonePrimaryNet();
+
+  // Given a set of input frames, select an action. Returns the action
+  // and the estimated Q-Value.
+  ActionValue SelectActionGreedily(const InputFrames& last_frames);
+
+  // Given a batch of input frames, return a batch of selected actions + values.
+  std::vector<ActionValue> SelectActionGreedily(
+      const std::vector<InputFrames>& last_frames);
+
+  // Input data into the Frames/Target/Filter layers. This must be
+  // done before forward is called.
+  void InputDataIntoLayers(
+      const FramesLayerInputData& frames_data,
+      const TargetLayerInputData& target_data,
+      const FilterLayerInputData& filter_data);
 
 private:
   using SolverSp = std::shared_ptr<caffe::Solver<float>>;
   using NetSp = boost::shared_ptr<caffe::Net<float>>;
   using BlobSp = boost::shared_ptr<caffe::Blob<float>>;
   using MemoryDataLayerSp = boost::shared_ptr<caffe::MemoryDataLayer<float>>;
-
-  ActionValue SelectActionGreedily(const InputFrames& last_frames);
-  std::vector<ActionValue> SelectActionGreedily(
-      const std::vector<InputFrames>& last_frames);
-  void InputDataIntoLayers(
-      const FramesLayerInputData& frames_data,
-      const TargetLayerInputData& target_data,
-      const FilterLayerInputData& filter_data);
 
   const ActionVect legal_actions_;
   const caffe::SolverParameter solver_param_;
