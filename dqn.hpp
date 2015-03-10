@@ -33,6 +33,8 @@ using FramesLayerInputData = std::array<float, kMinibatchDataSize>;
 using TargetLayerInputData = std::array<float, kMinibatchSize * kOutputCount>;
 using FilterLayerInputData = std::array<float, kMinibatchSize * kOutputCount>;
 
+using ActionValue = std::pair<Action, float>;
+
 /**
  * Deep Q-Network
  */
@@ -79,6 +81,11 @@ public:
    */
   void Update();
 
+  /**
+   * Clone the Primary network and store the result in clone_net_
+   */
+  void clonePrimaryNet();
+
   int memory_size() const { return replay_memory_.size(); }
   int current_iteration() const { return solver_->iter(); }
 
@@ -88,8 +95,8 @@ private:
   using BlobSp = boost::shared_ptr<caffe::Blob<float>>;
   using MemoryDataLayerSp = boost::shared_ptr<caffe::MemoryDataLayer<float>>;
 
-  std::pair<Action, float> SelectActionGreedily(const InputFrames& last_frames);
-  std::vector<std::pair<Action, float>> SelectActionGreedily(
+  ActionValue SelectActionGreedily(const InputFrames& last_frames);
+  std::vector<ActionValue> SelectActionGreedily(
       const std::vector<InputFrames>& last_frames);
   void InputDataIntoLayers(
       const FramesLayerInputData& frames_data,
@@ -103,6 +110,7 @@ private:
   std::deque<Transition> replay_memory_;
   SolverSp solver_;
   NetSp net_;
+  NetSp clone_net_; // Clone of net. Used to generate targets.
   BlobSp q_values_blob_;
   MemoryDataLayerSp frames_input_layer_;
   MemoryDataLayerSp target_input_layer_;

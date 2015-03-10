@@ -14,6 +14,7 @@ DEFINE_int32(memory, 400000, "Capacity of replay memory");
 DEFINE_int32(explore, 1000000, "Number of iterations needed for epsilon to reach given value.");
 DEFINE_double(epsilon, 0.05, "Value of epsilon reached after explore iterations.");
 DEFINE_double(gamma, 0.99, "Discount factor of future rewards (0,1]");
+DEFINE_int32(clone_freq, 10000, "Frequency (steps) of cloning the target network.");
 DEFINE_int32(memory_threshold, 100, "Enough amount of transitions to start learning");
 DEFINE_int32(skip_frame, 3, "Number of frames skipped");
 DEFINE_bool(show_frame, false, "Show the current frame in CUI");

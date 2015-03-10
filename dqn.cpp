@@ -232,11 +232,11 @@ Action DQN::SelectAction(const InputFrames& last_frames, const double epsilon) {
   }
 }
 
-std::pair<Action, float> DQN::SelectActionGreedily(const InputFrames& last_frames) {
+ActionValue DQN::SelectActionGreedily(const InputFrames& last_frames) {
   return SelectActionGreedily(std::vector<InputFrames>{{last_frames}}).front();
 }
 
-std::vector<std::pair<Action, float>> DQN::SelectActionGreedily(
+std::vector<ActionValue> DQN::SelectActionGreedily(
     const std::vector<InputFrames>& last_frames_batch) {
   assert(last_frames_batch.size() <= kMinibatchSize);
   std::array<float, kMinibatchDataSize> frames_input;
@@ -253,7 +253,7 @@ std::vector<std::pair<Action, float>> DQN::SelectActionGreedily(
   InputDataIntoLayers(frames_input, dummy_input_data_, dummy_input_data_);
   net_->ForwardPrefilled(nullptr);
 
-  std::vector<std::pair<Action, float>> results;
+  std::vector<ActionValue> results;
   results.reserve(last_frames_batch.size());
   for (auto i = 0; i < last_frames_batch.size(); ++i) {
     // Get the Q values from the net
@@ -358,6 +358,13 @@ void DQN::Update() {
   VLOG(1) << "ip2:" <<
       net_->layer_by_name("ip2_layer")->blobs().front()->data_at(1, 0, 0, 0);
 }
+
+void DQN::clonePrimaryNet() {
+  caffe::NetParameter net_param;
+  net_->ToProto(&net_param);
+  clone_net_.reset(new caffe::Net<float>(net_param));
+}
+
 
 void DQN::InputDataIntoLayers(
       const FramesLayerInputData& frames_input,
