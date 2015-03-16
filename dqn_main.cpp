@@ -154,6 +154,8 @@ void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
 }
 
 int main(int argc, char** argv) {
+  std::string usage("Deep-Q-Network Learning for Atari 2600 games");
+  gflags::SetUsageMessage(usage);
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
   google::InstallFailureSignalHandler();
