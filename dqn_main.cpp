@@ -5,11 +5,15 @@
 #include <gflags/gflags.h>
 #include "prettyprint.hpp"
 #include "dqn.hpp"
+#include <boost/filesystem.hpp>
+
+using namespace boost::filesystem;
 
 // DQN Parameters
 DEFINE_bool(gpu, true, "Use GPU to brew Caffe");
 DEFINE_bool(gui, false, "Open a GUI window");
-DEFINE_string(rom, "roms/pong.bin", "Atari 2600 ROM to play");
+DEFINE_string(save, "", "Prefix for saving snapshots");
+DEFINE_string(rom, "", "Atari 2600 ROM file to play");
 DEFINE_int32(memory, 400000, "Capacity of replay memory");
 DEFINE_int32(explore, 1000000, "Iterations for epsilon to reach given value.");
 DEFINE_double(epsilon, .1, "Value of epsilon after explore iterations.");
@@ -24,19 +28,7 @@ DEFINE_string(snapshot, "", "The solver state to load (*.solverstate).");
 DEFINE_bool(evaluate, false, "Evaluation mode: only playing a game, no updates");
 DEFINE_double(evaluate_with_epsilon, .05, "Epsilon value to be used in evaluation mode");
 DEFINE_int32(repeat_games, 10, "Number of games played in evaluation mode");
-// Solver Parameters
-DEFINE_string(solver, "", "Solver parameter file (*.prototxt)");
-DEFINE_string(solver_type, "RMSPROP", "Type of solver.");
-DEFINE_string(model, "dqn.prototxt", "The model definition (*.prototxt).");
-DEFINE_double(momentum, 0.95, "Solver momentum");
-DEFINE_double(base_lr, 0.00025, "Solver base learning rate");
-DEFINE_string(lr_policy, "fixed", "Solver lr policy");
-DEFINE_double(solver_gamma, 0.1, "Solver gamma");
-DEFINE_int32(stepsize, 10000000, "Solver stepsize");
-DEFINE_int32(max_iter, 50000000, "Maximum number of iterations");
-DEFINE_int32(snapshot_frequency, 1000000, "Snapshot frequency in iterations");
-DEFINE_int32(display, 10000, "Display frequency in iterations");
-DEFINE_string(snapshot_prefix, "state/dqn", "Prefix for saving snapshots");
+DEFINE_string(solver, "dqn_solver.prototxt", "Solver parameter file (*.prototxt)");
 
 double CalculateEpsilon(const int iter) {
   if (iter < FLAGS_explore) {
@@ -154,12 +146,65 @@ void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
 }
 
 int main(int argc, char** argv) {
-  std::string usage("Deep-Q-Network Learning for Atari 2600 games");
+  std::string usage(argv[0]);
+  usage.append(" -rom rom -[evaluate|save path]");
   gflags::SetUsageMessage(usage);
+  gflags::SetVersionString("0.1");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
   google::InstallFailureSignalHandler();
   google::LogToStderr();
+
+  if (FLAGS_rom.empty()) {
+    LOG(ERROR) << "Rom file required but not set.";
+    LOG(ERROR) << "Usage: " << gflags::ProgramUsage();
+    exit(1);
+  }
+  path rom_file(FLAGS_rom);
+  if (!is_regular_file(rom_file)) {
+    LOG(ERROR) << "Invalid ROM file: " << FLAGS_rom;
+    exit(1);
+  }
+  if (!is_regular_file(FLAGS_solver)) {
+    LOG(ERROR) << "Invalid solver: " << FLAGS_solver;
+    exit(1);
+  }
+  if (FLAGS_save.empty() && !FLAGS_evaluate) {
+    LOG(ERROR) << "Save path (or evaluate) required but not set.";
+    LOG(ERROR) << "Usage: " << gflags::ProgramUsage();
+    exit(1);
+  }
+  path save_path(FLAGS_save);
+  path snapshot_dir(current_path());
+  if (is_directory(save_path)) {
+    snapshot_dir = save_path;
+    save_path /= rom_file.stem();
+  } else {
+    if (save_path.has_parent_path()) {
+      snapshot_dir = save_path.parent_path();
+    }
+    save_path += "_";
+    save_path += rom_file.stem();
+  }
+  // Check for files that may be overwritten
+  assert(is_directory(snapshot_dir));
+  LOG(INFO) << "Snapshots Prefix: " << save_path;
+  directory_iterator end;
+  for(directory_iterator it(snapshot_dir); it!=end; ++it) {
+    if(boost::filesystem::is_regular_file(it->status())) {
+      std::string save_path_str = save_path.stem().native();
+      std::string other_str = it->path().filename().native();
+      auto res = std::mismatch(save_path_str.begin(),
+                               save_path_str.end(),
+                               other_str.begin());
+      if (res.first == save_path_str.end()) {
+        LOG(ERROR) << "Existing file " << it->path()
+                   << " conflicts with save path " << save_path;
+        LOG(ERROR) << "Please remove this file or specify another save path.";
+        exit(1);
+      }
+    }
+  }
 
   if (FLAGS_gpu) {
     caffe::Caffe::set_mode(caffe::Caffe::GPU);
@@ -181,28 +226,10 @@ int main(int argc, char** argv) {
       << "Give a snapshot to resume training or weights to finetune "
       "but not both.";
 
-  // Construct the solver either from file or params
+  // Construct the solver
   caffe::SolverParameter solver_param;
-  if (!FLAGS_solver.empty()) {
-    LOG(INFO) << "Reading solver prototxt from " << FLAGS_solver;
-    caffe::ReadProtoFromTextFileOrDie(FLAGS_solver, &solver_param);
-  } else {
-    LOG(INFO) << "Creating solver from scratch.";
-    solver_param.set_net(FLAGS_model);
-    ::caffe::SolverParameter_SolverType solver_type;
-    CHECK(::caffe::SolverParameter_SolverType_Parse(FLAGS_solver_type, &solver_type))
-        << "Invalid Solver Type " << FLAGS_solver_type;
-    solver_param.set_solver_type(solver_type);
-    solver_param.set_momentum(FLAGS_momentum);
-    solver_param.set_base_lr(FLAGS_base_lr);
-    solver_param.set_lr_policy(FLAGS_lr_policy);
-    solver_param.set_gamma(FLAGS_solver_gamma);
-    solver_param.set_stepsize(FLAGS_stepsize);
-    solver_param.set_max_iter(FLAGS_max_iter);
-    solver_param.set_display(FLAGS_display);
-    solver_param.set_snapshot(FLAGS_snapshot_frequency);
-    solver_param.set_snapshot_prefix(FLAGS_snapshot_prefix);
-  }
+  caffe::ReadProtoFromTextFileOrDie(FLAGS_solver, &solver_param);
+  solver_param.set_snapshot_prefix(save_path.c_str());
 
   dqn::DQN dqn(legal_actions, solver_param, FLAGS_memory, FLAGS_gamma,
                FLAGS_clone_freq);
