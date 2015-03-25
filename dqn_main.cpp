@@ -133,16 +133,26 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
  */
 void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
   auto total_score = 0.0;
+  vector<float> scores;
   std::stringstream ss;
   for (auto i = 0; i < FLAGS_repeat_games; ++i) {
     const auto score =
         PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, false);
     ss << score << " ";
     total_score += score;
+    scores.push_back(score);
+    LOG(INFO) << "Game " << i << " Score: " << score;
   }
+  auto avg_score = total_score / static_cast<double>(FLAGS_repeat_games);
+  // Compute the sample standard deviation
+  double stddev = 0.0;
+  for (auto i=0; i<FLAGS_repeat_games; ++i) {
+    stddev += (scores[i] - avg_score) * (scores[i] - avg_score);
+  }
+  stddev /= static_cast<double>(FLAGS_repeat_games - 1);
+  stddev = sqrt(stddev);
   LOG(INFO) << "Evaluation scores: " << ss.str();
-  LOG(INFO) << "Average score: " <<
-      total_score / static_cast<double>(FLAGS_repeat_games) << std::endl;
+  LOG(INFO) << "Average score: " << avg_score << " std: " << stddev;
 }
 
 int main(int argc, char** argv) {
