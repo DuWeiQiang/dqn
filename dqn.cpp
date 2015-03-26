@@ -185,16 +185,30 @@ void DQN::Initialize() {
 }
 
 Action DQN::SelectAction(const InputFrames& last_frames, const double epsilon) {
+  return SelectActions(std::vector<InputFrames>{{last_frames}}, epsilon)[0];
+}
+
+ActionVect DQN::SelectActions(const std::vector<InputFrames>& frames_batch,
+                              const double epsilon) {
   assert(epsilon >= 0.0 && epsilon <= 1.0);
+  assert(frames_batch.size() <= kMinibatchSize);
+  ActionVect actions(frames_batch.size());
   if (std::uniform_real_distribution<>(0.0, 1.0)(random_engine) < epsilon) {
     // Select randomly
-    const auto random_idx = std::uniform_int_distribution<int>
-        (0, legal_actions_.size() - 1)(random_engine);
-    return legal_actions_[random_idx];
+    for (int i=0; i<actions.size(); ++i) {
+      const auto random_idx = std::uniform_int_distribution<int>
+          (0, legal_actions_.size() - 1)(random_engine);
+      actions[i] = legal_actions_[random_idx];
+    }
   } else {
     // Select greedily
-    return SelectActionGreedily(*net_, last_frames).first;
+    std::vector<ActionValue> q = SelectActionGreedily(*net_, frames_batch);
+    assert(q.size() == actions.size());
+    for (int i=0; i<actions.size(); ++i) {
+      actions[i] = q[i].first;
+    }
   }
+  return actions;
 }
 
 ActionValue DQN::SelectActionGreedily(caffe::Net<float>& net,

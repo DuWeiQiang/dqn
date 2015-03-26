@@ -66,6 +66,10 @@ public:
   // Select an action by epsilon-greedy.
   Action SelectAction(const InputFrames& input_frames, double epsilon);
 
+  // Select a batch of actions by epsilon-greedy.
+  ActionVect SelectActions(const std::vector<InputFrames>& frames_batch,
+                           double epsilon);
+
   // Add a transition to replay memory
   void AddTransition(const Transition& transition);
 

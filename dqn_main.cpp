@@ -6,6 +6,10 @@
 #include "prettyprint.hpp"
 #include "dqn.hpp"
 #include <boost/filesystem.hpp>
+#include <thread>
+#include <mutex>
+#include <algorithm>
+#include <chrono>
 
 using namespace boost::filesystem;
 
@@ -27,7 +31,8 @@ DEFINE_string(weights, "", "The pretrained weights load (*.caffemodel).");
 DEFINE_string(snapshot, "", "The solver state to load (*.solverstate).");
 DEFINE_bool(evaluate, false, "Evaluation mode: only playing a game, no updates");
 DEFINE_double(evaluate_with_epsilon, .05, "Epsilon value to be used in evaluation mode");
-DEFINE_int32(repeat_games, 10, "Number of games played in evaluation mode");
+DEFINE_int32(evaluate_freq, 250000, "Frequency (steps) between evaluations");
+DEFINE_int32(repeat_games, 32, "Number of games played in evaluation mode");
 DEFINE_string(solver, "dqn_solver.prototxt", "Solver parameter file (*.prototxt)");
 
 double CalculateEpsilon(const int iter) {
@@ -62,6 +67,115 @@ void SaveInputFrames(const dqn::InputFrames& frames, const string filename) {
     }
   }
   ofs.close();
+}
+
+void InitializeALE(ALEInterface& ale, bool display_screen, std::string& rom) {
+  ale.set("display_screen", display_screen);
+  ale.set("disable_color_averaging", true);
+  ale.loadROM(rom);
+}
+
+std::mutex mtx;
+ActionVect act_to_take;
+std::vector<dqn::InputFrames> frames_batch;
+std::vector<bool> thread_ready;
+std::vector<bool> thread_done;
+std::vector<bool> action_ready;
+std::vector<double> thread_scores;
+
+/**
+ * Main method used by threads. Plays a single game.
+ */
+void ThreadEvaluate(int id) {
+  mtx.lock();
+  ALEInterface ale;
+  InitializeALE(ale, false, FLAGS_rom);
+  mtx.unlock();
+  std::deque<dqn::FrameDataSp> past_frames;
+  auto total_score = 0;
+  while (!ale.game_over()) {
+    const ALEScreen& screen = ale.getScreen();
+    const auto current_frame = dqn::PreprocessScreen(screen);
+    past_frames.push_back(current_frame);
+    if (past_frames.size() < dqn::kInputFrameCount) {
+      for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
+        total_score += ale.act(PLAYER_A_NOOP);
+      }
+      continue;
+    }
+    while (past_frames.size() > dqn::kInputFrameCount) {
+      past_frames.pop_front();
+    }
+    assert(past_frames.size() == dqn::kInputFrameCount);
+    assert(frames_batch.size() >= id);
+    dqn::InputFrames input_frames;
+    std::copy(past_frames.begin(), past_frames.end(), input_frames.begin());
+    mtx.lock();
+    frames_batch[id] = input_frames;
+    thread_ready[id] = true;
+    mtx.unlock();
+    while (!action_ready[id]) {
+      std::this_thread::yield();
+    }
+    for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
+      total_score += ale.act(act_to_take[id]);
+    }
+    action_ready[id] = false;
+  }
+  LOG(INFO) << "Thread " << id << " Score " << total_score;
+  thread_done[id] = true;
+  thread_ready[id] = true;
+  thread_scores[id] = total_score;
+}
+
+/**
+ * Evaluate the current player
+ */
+void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
+  assert(FLAGS_repeat_games <= dqn::kMinibatchSize);
+  int num_threads = FLAGS_repeat_games;
+  frames_batch.resize(num_threads);
+  act_to_take.resize(num_threads, PLAYER_A_NOOP);
+  thread_ready.resize(num_threads, false);
+  thread_done.resize(num_threads, false);
+  action_ready.resize(num_threads, false);
+  thread_scores.resize(num_threads, 0.0);
+  std::thread threads[num_threads];
+  for (int i=0; i<num_threads; ++i) {
+    threads[i] = std::thread(ThreadEvaluate, i);
+  }
+  while (std::any_of(thread_done.begin(), thread_done.end(),
+                     [](bool done){return !done;})) {
+    if (std::all_of(thread_ready.begin(), thread_ready.end(),
+                    [](bool ready){return ready;})) {
+      ActionVect av = dqn.SelectActions(frames_batch,
+                                        FLAGS_evaluate_with_epsilon);
+      assert(av.size() == num_threads);
+      for (int i=0; i<num_threads; ++i) {
+        act_to_take[i] = av[i];
+        if (!thread_done[i]) {
+          thread_ready[i] = false;
+        }
+      }
+      std::fill(action_ready.begin(), action_ready.end(), true);
+    } else {
+      std::this_thread::yield();
+    }
+  }
+  for (auto& th: threads) {
+    th.join();
+  }
+  double total_score = 0.0;
+  for (auto score : thread_scores) {
+    total_score += score;
+  }
+  const auto avg_score = total_score / static_cast<double>(num_threads);
+  double stddev = 0.0; // Compute the sample standard deviation
+  for (auto i=0; i<num_threads; ++i) {
+    stddev += (thread_scores[i] - avg_score) * (thread_scores[i] - avg_score);
+  }
+  stddev = sqrt(stddev / static_cast<double>(FLAGS_repeat_games - 1));
+  LOG(INFO) << "Average score: " << avg_score << " std: " << stddev;
 }
 
 /**
@@ -126,33 +240,6 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
   }
   ale.reset_game();
   return total_score;
-}
-
-/**
- * Evaluate the current player
- */
-void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
-  auto total_score = 0.0;
-  vector<float> scores;
-  std::stringstream ss;
-  for (auto i = 0; i < FLAGS_repeat_games; ++i) {
-    const auto score =
-        PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, false);
-    ss << score << " ";
-    total_score += score;
-    scores.push_back(score);
-    LOG(INFO) << "Game " << i << " Score: " << score;
-  }
-  auto avg_score = total_score / static_cast<double>(FLAGS_repeat_games);
-  // Compute the sample standard deviation
-  double stddev = 0.0;
-  for (auto i=0; i<FLAGS_repeat_games; ++i) {
-    stddev += (scores[i] - avg_score) * (scores[i] - avg_score);
-  }
-  stddev /= static_cast<double>(FLAGS_repeat_games - 1);
-  stddev = sqrt(stddev);
-  LOG(INFO) << "Evaluation scores: " << ss.str();
-  LOG(INFO) << "Average score: " << avg_score << " std: " << stddev;
 }
 
 int main(int argc, char** argv) {
@@ -223,11 +310,7 @@ int main(int argc, char** argv) {
   }
 
   ALEInterface ale;
-  ale.set("display_screen", FLAGS_gui);
-  ale.set("disable_color_averaging", true);
-
-  // Load the ROM file
-  ale.loadROM(FLAGS_rom);
+  InitializeALE(ale, FLAGS_gui, FLAGS_rom);
 
   // Get the vector of legal actions
   const auto legal_actions = ale.getMinimalActionSet();
@@ -262,6 +345,7 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  auto last_eval_iter = 0;
   auto episode = 0;
   while (dqn.current_iteration() < solver_param.max_iter()) {
     const auto epsilon = CalculateEpsilon(dqn.current_iteration());
@@ -270,6 +354,13 @@ int main(int argc, char** argv) {
               << ", epsilon = " << epsilon << ", iter = "
               << dqn.current_iteration();
     episode++;
+    if (dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
+      Evaluate(ale, dqn);
+      // TODO: Optionally checkpoint model
+      last_eval_iter = dqn.current_iteration();
+    }
   }
-  Evaluate(ale, dqn);
+  if (dqn.current_iteration() >= last_eval_iter) {
+    Evaluate(ale, dqn);
+  }
 };
