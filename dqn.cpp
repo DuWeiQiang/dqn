@@ -174,6 +174,7 @@ void DQN::RestoreSolver(const std::string& solver_bin) {
 void DQN::Initialize() {
   // Initialize net and solver
   solver_.reset(caffe::GetSolver<float>(solver_param_));
+  solver_->PreSolve();
   net_ = solver_->net();
   std::fill(dummy_input_data_.begin(), dummy_input_data_.end(), 0.0);
   assert(HasBlobSize(*net_->blob_by_name("frames"), kMinibatchSize,
@@ -182,6 +183,7 @@ void DQN::Initialize() {
                      kOutputCount, 1, 1));
   assert(HasBlobSize(*net_->blob_by_name("filter"), kMinibatchSize,
                      kOutputCount, 1, 1));
+  // ClonePrimaryNet();
 }
 
 Action DQN::SelectAction(const InputFrames& last_frames, const double epsilon) {
@@ -266,10 +268,10 @@ void DQN::AddTransition(const Transition& transition) {
 
 void DQN::Update() {
   // Every clone_iters steps, update the clone_net_ to equal the primary net
-  if (current_iteration() % clone_frequency_ == 0) {
-    LOG(INFO) << "Iter " << current_iteration() << ": Updating Clone Net";
-    ClonePrimaryNet();
-  }
+  // if (current_iteration() % clone_frequency_ == 0) {
+  //   LOG(INFO) << "Iter " << current_iteration() << ": Updating Clone Net";
+  //   ClonePrimaryNet();
+  // }
 
   // Sample transitions from replay memory
   std::vector<int> transitions;
@@ -280,40 +282,18 @@ void DQN::Update() {
             random_engine);
     transitions.push_back(random_transition_idx);
   }
-  // Compute target values: max_a Q(s',a)
-  std::vector<InputFrames> target_last_frames_batch;
-  for (const auto idx : transitions) {
-    const auto& transition = replay_memory_[idx];
-    if (!std::get<3>(transition)) {
-      // This is a terminal state
-      continue;
-    }
-    // Compute target value
-    InputFrames target_last_frames;
-    for (auto i = 0; i < kInputFrameCount - 1; ++i) {
-      target_last_frames[i] = std::get<0>(transition)[i + 1];
-    }
-    target_last_frames[kInputFrameCount - 1] = std::get<3>(transition).get();
-    target_last_frames_batch.push_back(target_last_frames);
-  }
-  // Get the update targets from the cloned network
-  const auto actions_and_values =
-      SelectActionGreedily(*clone_net_, target_last_frames_batch);
   FramesLayerInputData frames_input;
   TargetLayerInputData target_input;
   FilterLayerInputData filter_input;
   std::fill(target_input.begin(), target_input.end(), 0.0f);
   std::fill(filter_input.begin(), filter_input.end(), 0.0f);
-  auto target_value_idx = 0;
   for (auto i = 0; i < kMinibatchSize; ++i) {
     const auto& transition = replay_memory_[transitions[i]];
     const auto action = std::get<1>(transition);
     assert(static_cast<int>(action) < kOutputCount);
     const auto reward = std::get<2>(transition);
     assert(reward >= -1.0 && reward <= 1.0);
-    const auto target = std::get<3>(transition) ?
-          reward + gamma_ * actions_and_values[target_value_idx++].second :
-          reward;
+    const auto target = std::get<4>(transition);
     assert(!std::isnan(target));
     target_input[i * kOutputCount + static_cast<int>(action)] = target;
     filter_input[i * kOutputCount + static_cast<int>(action)] = 1;

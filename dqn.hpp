@@ -26,8 +26,9 @@ constexpr auto kOutputCount = 18;
 using FrameData = std::array<uint8_t, kCroppedFrameDataSize>;
 using FrameDataSp = std::shared_ptr<FrameData>;
 using InputFrames = std::array<FrameDataSp, 4>;
+// Transition: <S,A,r,S',return>
 using Transition = std::tuple<InputFrames, Action,
-                              float, boost::optional<FrameDataSp>>;
+                              float, boost::optional<FrameDataSp>, float>;
 
 using FramesLayerInputData = std::array<float, kMinibatchDataSize>;
 using TargetLayerInputData = std::array<float, kMinibatchSize * kOutputCount>;
@@ -63,6 +64,9 @@ public:
   // Restore solving from a solver file.
   void RestoreSolver(const std::string& solver_file);
 
+  // Snapshot the current model
+  void Snapshot() { solver_->Snapshot(); }
+
   // Select an action by epsilon-greedy.
   Action SelectAction(const InputFrames& input_frames, double epsilon);
 
@@ -75,6 +79,9 @@ public:
 
   // Update DQN using one minibatch
   void Update();
+
+  // Clear the replay memory
+  void ClearReplayMemory() { replay_memory_.clear(); }
 
   // Get the current size of the replay memory
   int memory_size() const { return replay_memory_.size(); }

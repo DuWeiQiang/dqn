@@ -10,6 +10,7 @@
 #include <mutex>
 #include <algorithm>
 #include <chrono>
+#include <limits>
 
 using namespace boost::filesystem;
 
@@ -75,9 +76,26 @@ void InitializeALE(ALEInterface& ale, bool display_screen, std::string& rom) {
   ale.loadROM(rom);
 }
 
+/**
+ * Calculates the return for the transitions and adds to replay memory
+ */
+void ComputeReturn(dqn::DQN& dqn, std::vector<dqn::Transition>& game) {
+  float J = 0;
+  while (!game.empty()) {
+    dqn::Transition& t = game.back();
+    const auto reward = std::get<2>(t);
+    J = reward + FLAGS_gamma * J;
+    std::get<4>(t) = J;
+    dqn.AddTransition(t);
+    game.pop_back();
+    VLOG(1) << "t " << game.size() << " r " << reward << " J " << J;
+  }
+}
+
 std::mutex mtx;
 ActionVect act_to_take;
 std::vector<dqn::InputFrames> frames_batch;
+std::vector<float> rewards;
 std::vector<bool> thread_ready;
 std::vector<bool> thread_done;
 std::vector<bool> action_ready;
@@ -93,6 +111,7 @@ void ThreadEvaluate(int id) {
   mtx.unlock();
   std::deque<dqn::FrameDataSp> past_frames;
   auto total_score = 0;
+  auto reward = 0;
   while (!ale.game_over()) {
     const ALEScreen& screen = ale.getScreen();
     const auto current_frame = dqn::PreprocessScreen(screen);
@@ -113,34 +132,53 @@ void ThreadEvaluate(int id) {
     mtx.lock();
     frames_batch[id] = input_frames;
     thread_ready[id] = true;
+    rewards[id] = reward;
     mtx.unlock();
     while (!action_ready[id]) {
       std::this_thread::yield();
     }
+    auto immediate_score = 0.0;
     for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
-      total_score += ale.act(act_to_take[id]);
+      immediate_score += ale.act(act_to_take[id]);
     }
+    total_score += immediate_score;
+    reward = immediate_score == 0 ? 0 : immediate_score /
+        std::abs(immediate_score);
+    assert(reward <= 1 && reward >= -1);
     action_ready[id] = false;
   }
   LOG(INFO) << "Thread " << id << " Score " << total_score;
+  mtx.lock();
   thread_done[id] = true;
   thread_ready[id] = true;
   thread_scores[id] = total_score;
+  mtx.unlock();
 }
 
 /**
- * Evaluate the current player
+ * Plays kMinibatchSize episodes in parallel using threads. Returns a
+ * vector of scores for each thread.
  */
-void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
+std::vector<double> PlayParallelEpisodes(dqn::DQN& dqn, bool update) {
   assert(FLAGS_repeat_games <= dqn::kMinibatchSize);
   int num_threads = FLAGS_repeat_games;
   frames_batch.resize(num_threads);
-  act_to_take.resize(num_threads, PLAYER_A_NOOP);
-  thread_ready.resize(num_threads, false);
-  thread_done.resize(num_threads, false);
-  action_ready.resize(num_threads, false);
-  thread_scores.resize(num_threads, 0.0);
+  rewards.resize(num_threads);
+  act_to_take.resize(num_threads);
+  thread_ready.resize(num_threads);
+  thread_done.resize(num_threads);
+  action_ready.resize(num_threads);
+  thread_scores.resize(num_threads);
+
+  std::fill(act_to_take.begin(), act_to_take.end(), PLAYER_A_NOOP);
+  std::fill(thread_ready.begin(), thread_ready.end(), false);
+  std::fill(thread_done.begin(), thread_done.end(), false);
+  std::fill(action_ready.begin(), action_ready.end(), false);
+  std::fill(thread_scores.begin(), thread_scores.end(), 0.0);
+
   std::thread threads[num_threads];
+  std::vector<dqn::Transition> games_in_progress[num_threads];
+  std::vector<dqn::InputFrames> past_frames_batch;
   for (int i=0; i<num_threads; ++i) {
     threads[i] = std::thread(ThreadEvaluate, i);
   }
@@ -148,6 +186,22 @@ void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
                      [](bool done){return !done;})) {
     if (std::all_of(thread_ready.begin(), thread_ready.end(),
                     [](bool ready){return ready;})) {
+      if (update) {
+        if (past_frames_batch.empty()) {
+          past_frames_batch.resize(num_threads);
+        } else {
+          for (int i=0; i<num_threads; ++i) {
+            if (!thread_done[i]) {
+              const dqn::FrameDataSp& next_frame =
+                  frames_batch[i][dqn::kInputFrameCount-1];
+              const auto transition = dqn::Transition(past_frames_batch[i],
+                                                      act_to_take[i], rewards[i],
+                                                      next_frame, 0.);
+              games_in_progress[i].push_back(transition);
+            }
+          }
+        }
+      }
       ActionVect av = dqn.SelectActions(frames_batch,
                                         FLAGS_evaluate_with_epsilon);
       assert(av.size() == num_threads);
@@ -157,6 +211,10 @@ void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
           thread_ready[i] = false;
         }
       }
+      if (update) {
+        // Swap the past frames with the current frames
+        past_frames_batch.swap(frames_batch);
+      }
       std::fill(action_ready.begin(), action_ready.end(), true);
     } else {
       std::this_thread::yield();
@@ -165,17 +223,16 @@ void Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
   for (auto& th: threads) {
     th.join();
   }
-  double total_score = 0.0;
-  for (auto score : thread_scores) {
-    total_score += score;
+  if (update) {
+    for (int i=0; i<num_threads; ++i) {
+      const auto transition = dqn::Transition(frames_batch[i],
+                                              act_to_take[i], rewards[i],
+                                              boost::none, 0.);
+      games_in_progress[i].push_back(transition);
+      ComputeReturn(dqn, games_in_progress[i]);
+    }
   }
-  const auto avg_score = total_score / static_cast<double>(num_threads);
-  double stddev = 0.0; // Compute the sample standard deviation
-  for (auto i=0; i<num_threads; ++i) {
-    stddev += (thread_scores[i] - avg_score) * (thread_scores[i] - avg_score);
-  }
-  stddev = sqrt(stddev / static_cast<double>(FLAGS_repeat_games - 1));
-  LOG(INFO) << "Average score: " << avg_score << " std: " << stddev;
+  return thread_scores;
 }
 
 /**
@@ -185,6 +242,7 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
                       const bool update) {
   CHECK(!ale.game_over());
   std::deque<dqn::FrameDataSp> past_frames;
+  std::vector<dqn::Transition> game_in_progress;
   auto total_score = 0.0;
   for (auto frame = 0; !ale.game_over(); ++frame) {
     const ALEScreen& screen = ale.getScreen();
@@ -227,19 +285,35 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
       if (update) {
         // Add the current transition to replay memory
         const auto transition = ale.game_over() ?
-            dqn::Transition(input_frames, action, reward, boost::none) :
+            dqn::Transition(input_frames, action, reward, boost::none, 0.) :
             dqn::Transition(input_frames, action, reward,
-                            dqn::PreprocessScreen(ale.getScreen()));
-        dqn.AddTransition(transition);
-        // If the size of replay memory is large enough, update DQN
-        if (dqn.memory_size() > FLAGS_memory_threshold) {
-          dqn.Update();
-        }
+                            dqn::PreprocessScreen(ale.getScreen()), 0.);
+        game_in_progress.push_back(transition);
       }
     }
   }
   ale.reset_game();
+  ComputeReturn(dqn, game_in_progress);
   return total_score;
+}
+
+/**
+ * Evaluate the current player
+ */
+double Evaluate(dqn::DQN& dqn) {
+  std::vector<double> scores = PlayParallelEpisodes(dqn, false);
+  double total_score = 0.0;
+  for (auto score : scores) {
+    total_score += score;
+  }
+  const auto avg_score = total_score / static_cast<double>(scores.size());
+  double stddev = 0.0; // Compute the sample standard deviation
+  for (auto i=0; i<scores.size(); ++i) {
+    stddev += (scores[i] - avg_score) * (scores[i] - avg_score);
+  }
+  stddev = sqrt(stddev / static_cast<double>(FLAGS_repeat_games - 1));
+  LOG(INFO) << "Evaluation avg_score = " << avg_score << " std = " << stddev;
+  return avg_score;
 }
 
 int main(int argc, char** argv) {
@@ -341,26 +415,52 @@ int main(int argc, char** argv) {
   }
 
   if (FLAGS_evaluate) {
-    Evaluate(ale, dqn);
+    if (FLAGS_gui) {
+      auto score = PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, false);
+      LOG(INFO) << "Score " << score;
+    } else {
+      Evaluate(dqn);
+    }
     return 0;
   }
 
-  auto last_eval_iter = 0;
-  auto episode = 0;
+  int last_eval_iter = 0;
+  int play_batch = 0;
+  double best_score = std::numeric_limits<double>::min();
   while (dqn.current_iteration() < solver_param.max_iter()) {
     const auto epsilon = CalculateEpsilon(dqn.current_iteration());
-    const auto score = PlayOneEpisode(ale, dqn, epsilon, true);
-    LOG(INFO) << "Episode " << episode << ", score = " << score
-              << ", epsilon = " << epsilon << ", iter = "
-              << dqn.current_iteration();
-    episode++;
+    std::vector<double> scores = PlayParallelEpisodes(dqn, true);
+    double total_score = 0.0;
+    for (auto score : scores) {
+      total_score += score;
+    }
+    const auto avg_score = total_score / static_cast<double>(scores.size());
+    LOG(INFO) << "PlayBatch " << play_batch << " avg_score = " << avg_score
+              << ", epsilon = " << epsilon
+              << ", iter = " << dqn.current_iteration()
+              << ", replay_mem_size = " << dqn.memory_size();
+    play_batch++;
+    // Every so often, do a bunch of updates and clear the replay memory
+    if (dqn.memory_size() > FLAGS_memory_threshold) {
+      LOG(INFO) << "Performing Batch Update";
+      // Update enough so that we expect to see every transition twice
+      for (int i=0; i < 2 * dqn.memory_size() / dqn::kMinibatchSize; ++i) {
+        dqn.Update();
+      }
+      dqn.ClearReplayMemory();
+    }
     if (dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
-      Evaluate(ale, dqn);
-      // TODO: Optionally checkpoint model
+      double avg_score = Evaluate(dqn);
+      if (avg_score > best_score) {
+        LOG(INFO) << "iter " << dqn.current_iteration()
+                  << " New High Score: " << avg_score;
+        best_score = avg_score;
+        dqn.Snapshot();
+      }
       last_eval_iter = dqn.current_iteration();
     }
   }
   if (dqn.current_iteration() >= last_eval_iter) {
-    Evaluate(ale, dqn);
+    Evaluate(dqn);
   }
 };
