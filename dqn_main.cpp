@@ -450,18 +450,17 @@ int main(int argc, char** argv) {
               << ", iter = " << dqn.current_iteration()
               << ", replay_mem_size = " << dqn.memory_size();
     play_batch++;
-    // Every so often, do a bunch of updates and clear the replay memory
-    if (dqn.memory_size() > FLAGS_memory_threshold) {
-      // Update enough so that we expect to see every transition in
-      // expectation update_passes times
-      int num_updates = FLAGS_update_passes * dqn.memory_size() /
-          dqn::kMinibatchSize;
-      LOG(INFO) << "Performing " << num_updates << " Updates";
-      for (int i=0; i < num_updates; ++i) {
-        dqn.Update();
-      }
-      dqn.ClearReplayMemory();
+
+    // Update enough so that we expect to see every transition in
+    // expectation update_passes times
+    int num_updates = FLAGS_update_passes * dqn.memory_size() /
+        dqn::kMinibatchSize;
+    LOG(INFO) << "Performing " << num_updates << " Updates";
+    for (int i=0; i < num_updates; ++i) {
+      dqn.Update();
     }
+    dqn.ClearReplayMemory();
+
     if (dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
       double avg_score = Evaluate(dqn);
       if (avg_score > best_score) {
