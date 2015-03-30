@@ -174,6 +174,7 @@ void DQN::RestoreSolver(const std::string& solver_bin) {
 void DQN::Initialize() {
   // Initialize net and solver
   solver_.reset(caffe::GetSolver<float>(solver_param_));
+  solver_->PreSolve();
   net_ = solver_->net();
   std::fill(dummy_input_data_.begin(), dummy_input_data_.end(), 0.0);
   assert(HasBlobSize(*net_->blob_by_name("frames"), kMinibatchSize,
@@ -182,6 +183,7 @@ void DQN::Initialize() {
                      kOutputCount, 1, 1));
   assert(HasBlobSize(*net_->blob_by_name("filter"), kMinibatchSize,
                      kOutputCount, 1, 1));
+  ClonePrimaryNet();
 }
 
 Action DQN::SelectAction(const InputFrames& last_frames, const double epsilon) {

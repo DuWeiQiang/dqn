@@ -63,6 +63,9 @@ public:
   // Restore solving from a solver file.
   void RestoreSolver(const std::string& solver_file);
 
+  // Snapshot the current model
+  void Snapshot() { solver_->Snapshot(); }
+
   // Select an action by epsilon-greedy.
   Action SelectAction(const InputFrames& input_frames, double epsilon);
 
@@ -75,6 +78,9 @@ public:
 
   // Update DQN using one minibatch
   void Update();
+
+  // Clear the replay memory
+  void ClearReplayMemory() { replay_memory_.clear(); }
 
   // Get the current size of the replay memory
   int memory_size() const { return replay_memory_.size(); }
