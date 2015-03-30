@@ -35,6 +35,7 @@ DEFINE_double(evaluate_with_epsilon, .05, "Epsilon value to be used in evaluatio
 DEFINE_int32(evaluate_freq, 250000, "Frequency (steps) between evaluations");
 DEFINE_int32(repeat_games, 32, "Number of games played in evaluation mode");
 DEFINE_string(solver, "dqn_solver.prototxt", "Solver parameter file (*.prototxt)");
+DEFINE_int32(update_passes, 2, "Number of update passes over the replay memory");
 
 double CalculateEpsilon(const int iter) {
   if (iter < FLAGS_explore) {
@@ -159,7 +160,8 @@ void ThreadEvaluate(int id) {
  * Plays kMinibatchSize episodes in parallel using threads. Returns a
  * vector of scores for each thread.
  */
-std::vector<double> PlayParallelEpisodes(dqn::DQN& dqn, bool update) {
+std::vector<double> PlayParallelEpisodes(dqn::DQN& dqn, double epsilon,
+                                         bool update) {
   assert(FLAGS_repeat_games <= dqn::kMinibatchSize);
   int num_threads = FLAGS_repeat_games;
   frames_batch.resize(num_threads);
@@ -202,8 +204,7 @@ std::vector<double> PlayParallelEpisodes(dqn::DQN& dqn, bool update) {
           }
         }
       }
-      ActionVect av = dqn.SelectActions(frames_batch,
-                                        FLAGS_evaluate_with_epsilon);
+      ActionVect av = dqn.SelectActions(frames_batch, epsilon);
       assert(av.size() == num_threads);
       for (int i=0; i<num_threads; ++i) {
         act_to_take[i] = av[i];
@@ -225,9 +226,8 @@ std::vector<double> PlayParallelEpisodes(dqn::DQN& dqn, bool update) {
   }
   if (update) {
     for (int i=0; i<num_threads; ++i) {
-      const auto transition = dqn::Transition(frames_batch[i],
-                                              act_to_take[i], rewards[i],
-                                              boost::none, 0.);
+      const auto transition = dqn::Transition(
+          frames_batch[i], act_to_take[i], rewards[i], boost::none, 0.);
       games_in_progress[i].push_back(transition);
       ComputeReturn(dqn, games_in_progress[i]);
     }
@@ -301,7 +301,8 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
  * Evaluate the current player
  */
 double Evaluate(dqn::DQN& dqn) {
-  std::vector<double> scores = PlayParallelEpisodes(dqn, false);
+  std::vector<double> scores = PlayParallelEpisodes(
+      dqn, FLAGS_evaluate_with_epsilon, false);
   double total_score = 0.0;
   for (auto score : scores) {
     total_score += score;
@@ -324,7 +325,7 @@ int main(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
   google::InstallFailureSignalHandler();
-  google::LogToStderr();
+  // google::LogToStderr();
 
   if (FLAGS_rom.empty()) {
     LOG(ERROR) << "Rom file required but not set.";
@@ -376,6 +377,15 @@ int main(int argc, char** argv) {
       }
     }
   }
+  // Set the logging destinations
+  google::SetLogDestination(google::GLOG_INFO,
+                            (save_path.native() + "_INFO_").c_str());
+  google::SetLogDestination(google::GLOG_WARNING,
+                            (save_path.native() + "_WARNING_").c_str());
+  google::SetLogDestination(google::GLOG_ERROR,
+                            (save_path.native() + "_ERROR_").c_str());
+  google::SetLogDestination(google::GLOG_FATAL,
+                            (save_path.native() + "_FATAL_").c_str());
 
   if (FLAGS_gpu) {
     caffe::Caffe::set_mode(caffe::Caffe::GPU);
@@ -428,8 +438,8 @@ int main(int argc, char** argv) {
   int play_batch = 0;
   double best_score = std::numeric_limits<double>::min();
   while (dqn.current_iteration() < solver_param.max_iter()) {
-    const auto epsilon = CalculateEpsilon(dqn.current_iteration());
-    std::vector<double> scores = PlayParallelEpisodes(dqn, true);
+    double epsilon = CalculateEpsilon(dqn.current_iteration());
+    std::vector<double> scores = PlayParallelEpisodes(dqn, epsilon, true);
     double total_score = 0.0;
     for (auto score : scores) {
       total_score += score;
@@ -442,9 +452,12 @@ int main(int argc, char** argv) {
     play_batch++;
     // Every so often, do a bunch of updates and clear the replay memory
     if (dqn.memory_size() > FLAGS_memory_threshold) {
-      LOG(INFO) << "Performing Batch Update";
-      // Update enough so that we expect to see every transition twice
-      for (int i=0; i < 2 * dqn.memory_size() / dqn::kMinibatchSize; ++i) {
+      // Update enough so that we expect to see every transition in
+      // expectation update_passes times
+      int num_updates = FLAGS_update_passes * dqn.memory_size() /
+          dqn::kMinibatchSize;
+      LOG(INFO) << "Performing " << num_updates << " Updates";
+      for (int i=0; i < num_updates; ++i) {
         dqn.Update();
       }
       dqn.ClearReplayMemory();
