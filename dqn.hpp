@@ -17,16 +17,14 @@ constexpr auto kRawFrameHeight = 210;
 constexpr auto kRawFrameWidth = 160;
 constexpr auto kCroppedFrameSize = 84;
 constexpr auto kCroppedFrameDataSize = kCroppedFrameSize * kCroppedFrameSize;
-constexpr auto kInputFrameCount = 4;
-constexpr auto kInputDataSize = kCroppedFrameDataSize * kInputFrameCount;
+constexpr auto kInputDataSize = kCroppedFrameDataSize;
 constexpr auto kMinibatchSize = 32;
 constexpr auto kMinibatchDataSize = kInputDataSize * kMinibatchSize;
 constexpr auto kOutputCount = 18;
 
 using FrameData = std::array<uint8_t, kCroppedFrameDataSize>;
 using FrameDataSp = std::shared_ptr<FrameData>;
-using InputFrames = std::array<FrameDataSp, 4>;
-using Transition = std::tuple<InputFrames, Action,
+using Transition = std::tuple<FrameDataSp, Action,
                               float, boost::optional<FrameDataSp>>;
 
 using FramesLayerInputData = std::array<float, kMinibatchDataSize>;
@@ -67,10 +65,10 @@ public:
   void Snapshot() { solver_->Snapshot(); }
 
   // Select an action by epsilon-greedy.
-  Action SelectAction(const InputFrames& input_frames, double epsilon);
+  Action SelectAction(const FrameDataSp& input_frames, double epsilon);
 
   // Select a batch of actions by epsilon-greedy.
-  ActionVect SelectActions(const std::vector<InputFrames>& frames_batch,
+  ActionVect SelectActions(const std::vector<FrameDataSp>& frames_batch,
                            double epsilon);
 
   // Add a transition to replay memory
@@ -95,12 +93,12 @@ protected:
   // Given a set of input frames and a network, select an
   // action. Returns the action and the estimated Q-Value.
   ActionValue SelectActionGreedily(caffe::Net<float>& net,
-                                   const InputFrames& last_frames);
+                                   const FrameDataSp& last_frames);
 
   // Given a batch of input frames, return a batch of selected actions + values.
   std::vector<ActionValue> SelectActionGreedily(
       caffe::Net<float>& net,
-      const std::vector<InputFrames>& last_frames);
+      const std::vector<FrameDataSp>& last_frames);
 
   // Input data into the Frames/Target/Filter layers of the given
   // net. This must be done before forward is called.

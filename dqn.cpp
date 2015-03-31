@@ -178,7 +178,7 @@ void DQN::Initialize() {
   net_ = solver_->net();
   std::fill(dummy_input_data_.begin(), dummy_input_data_.end(), 0.0);
   assert(HasBlobSize(*net_->blob_by_name("frames"), kMinibatchSize,
-                     kInputFrameCount, kCroppedFrameSize, kCroppedFrameSize));
+                     1, kCroppedFrameSize, kCroppedFrameSize));
   assert(HasBlobSize(*net_->blob_by_name("target"), kMinibatchSize,
                      kOutputCount, 1, 1));
   assert(HasBlobSize(*net_->blob_by_name("filter"), kMinibatchSize,
@@ -214,25 +214,22 @@ ActionVect DQN::SelectActions(const std::vector<InputFrames>& frames_batch,
 }
 
 ActionValue DQN::SelectActionGreedily(caffe::Net<float>& net,
-                                      const InputFrames& last_frames) {
+                                      const FrameDataSp& last_frame) {
   return SelectActionGreedily(
-      net, std::vector<InputFrames>{{last_frames}}).front();
+      net, std::vector<InputFrames>{{last_frame}}).front();
 }
 
 std::vector<ActionValue> DQN::SelectActionGreedily(
     caffe::Net<float>& net,
-    const std::vector<InputFrames>& last_frames_batch) {
+    const std::vector<FrameDataSp>& last_frames_batch) {
   assert(last_frames_batch.size() <= kMinibatchSize);
   std::array<float, kMinibatchDataSize> frames_input;
   // Input frames to the net and compute Q values for each legal actions
   for (auto i = 0; i < last_frames_batch.size(); ++i) {
-    for (auto j = 0; j < kInputFrameCount; ++j) {
-      const auto& frame_data = last_frames_batch[i][j];
-      std::copy(frame_data->begin(),
-                frame_data->end(),
-                frames_input.begin() + i * kInputDataSize +
-                j * kCroppedFrameDataSize);
-    }
+    const auto& frame_data = last_frames_batch[i];
+    std::copy(frame_data->begin(),
+              frame_data->end(),
+              frames_input.begin() + i * kInputDataSize);
   }
   InputDataIntoLayers(net, frames_input, dummy_input_data_, dummy_input_data_);
   net.ForwardPrefilled(nullptr);
@@ -291,7 +288,7 @@ void DQN::Update() {
       continue;
     }
     // Compute target value
-    InputFrames target_last_frames;
+    FrameDataSp target_last_frame = std::get<0>(transition)[i + 1];
     for (auto i = 0; i < kInputFrameCount - 1; ++i) {
       target_last_frames[i] = std::get<0>(transition)[i + 1];
     }
