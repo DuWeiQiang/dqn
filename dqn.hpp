@@ -13,27 +13,45 @@
 
 namespace dqn {
 
-constexpr auto kRawFrameHeight = 210;
-constexpr auto kRawFrameWidth = 160;
-constexpr auto kCroppedFrameSize = 84;
+constexpr auto kUnroll               = 2;
+constexpr auto kRawFrameHeight       = 210;
+constexpr auto kRawFrameWidth        = 160;
+constexpr auto kCroppedFrameSize     = 84;
 constexpr auto kCroppedFrameDataSize = kCroppedFrameSize * kCroppedFrameSize;
-constexpr auto kInputDataSize = kCroppedFrameDataSize;
-constexpr auto kMinibatchSize = 32;
-constexpr auto kMinibatchDataSize = kInputDataSize * kMinibatchSize;
-constexpr auto kOutputCount = 18;
+constexpr auto kMinibatchSize        = 32;
+constexpr auto kMinibatchDataSize    = kCroppedFrameDataSize * kMinibatchSize;
+constexpr auto kOutputCount          = 18;
 
-using FrameData = std::array<uint8_t, kCroppedFrameDataSize>;
-using FrameDataSp = std::shared_ptr<FrameData>;
-using Transition = std::tuple<FrameDataSp, Action,
-                              float, boost::optional<FrameDataSp>>;
+// Size of the memory data inputs for the train net
+constexpr auto kFramesInputSize = kMinibatchSize * kUnroll * kCroppedFrameDataSize;
+constexpr auto kTargetInputSize = kUnroll * kMinibatchSize * kOutputCount;
+constexpr auto kFilterInputSize = kUnroll * kMinibatchSize * kOutputCount;
+constexpr auto kContInputSize = kUnroll * kMinibatchSize;
 
-using FramesLayerInputData = std::array<float, kMinibatchDataSize>;
-using TargetLayerInputData = std::array<float, kMinibatchSize * kOutputCount>;
-using FilterLayerInputData = std::array<float, kMinibatchSize * kOutputCount>;
+// Size of the memory data inputs for the test net
+constexpr auto kTestFramesInputSize = kMinibatchSize * kCroppedFrameDataSize;
+constexpr auto kTestTargetInputSize = kMinibatchSize * kOutputCount;
+constexpr auto kTestFilterInputSize = kMinibatchSize * kOutputCount;
+constexpr auto kTestContInputSize = kMinibatchSize;
+
+using FrameData    = std::array<uint8_t, kCroppedFrameDataSize>;
+using FrameDataSp  = std::shared_ptr<FrameData>;
+using Transition   = std::tuple<FrameDataSp, Action, float, boost::optional<FrameDataSp> >;
+using Episode      = std::vector<Transition>;
+using ReplayMemory = std::deque<Episode>;
+using MemoryLayer  = caffe::MemoryDataLayer<float>;
+using FrameVec     = std::vector<FrameDataSp>;
+
+using FramesLayerInputData = std::array<float, kFramesInputSize>;
+using TargetLayerInputData = std::array<float, kTargetInputSize>;
+using FilterLayerInputData = std::array<float, kFilterInputSize>;
+using ContLayerInputData = std::array<float, kContInputSize>;
 
 using ActionValue = std::pair<Action, float>;
 using SolverSp = std::shared_ptr<caffe::Solver<float>>;
 using NetSp = boost::shared_ptr<caffe::Net<float>>;
+
+
 
 /**
  * Deep Q-Network
@@ -50,6 +68,7 @@ public:
         replay_memory_capacity_(replay_memory_capacity),
         gamma_(gamma),
         clone_frequency_(clone_frequency),
+        replay_memory_size_(0),
         random_engine(0) {}
 
   // Initialize DQN. Must be called before calling any other method.
@@ -64,15 +83,16 @@ public:
   // Snapshot the current model
   void Snapshot() { solver_->Snapshot(); }
 
-  // Select an action by epsilon-greedy.
-  Action SelectAction(const FrameDataSp& input_frames, double epsilon);
+  // Select an action by epsilon-greedy. If cont is false, LSTM state
+  // will be reset. cont should be true only at start of new episodes.
+  Action SelectAction(const FrameDataSp& frame, double epsilon, bool cont);
 
   // Select a batch of actions by epsilon-greedy.
-  ActionVect SelectActions(const std::vector<FrameDataSp>& frames_batch,
-                           double epsilon);
+  ActionVect SelectActions(const FrameVec& frames_batch, double epsilon,
+                           bool cont);
 
-  // Add a transition to replay memory
-  void AddTransition(const Transition& transition);
+  // Add an episode to the replay memory
+  void RememberEpisode(const Episode& episode);
 
   // Update DQN using one minibatch
   void Update();
@@ -80,32 +100,37 @@ public:
   // Clear the replay memory
   void ClearReplayMemory() { replay_memory_.clear(); }
 
-  // Get the current size of the replay memory
-  int memory_size() const { return replay_memory_.size(); }
+  // Get the number of episodes stored in the replay memory
+  int memory_episodes() const { return replay_memory_.size(); }
+
+  // Get the number of transitions store in the replay memory
+  int memory_size() const { return replay_memory_size_; }
 
   // Return the current iteration of the solver
   int current_iteration() const { return solver_->iter(); }
 
 protected:
-  // Clone the Primary network and store the result in clone_net_
-  void ClonePrimaryNet();
+  // Clone the given net and store the result in clone_net_
+  void CloneNet(caffe::Net<float>& net);
 
   // Given a set of input frames and a network, select an
   // action. Returns the action and the estimated Q-Value.
   ActionValue SelectActionGreedily(caffe::Net<float>& net,
-                                   const FrameDataSp& last_frames);
+                                   const FrameDataSp& frame,
+                                   bool cont);
 
-  // Given a batch of input frames, return a batch of selected actions + values.
-  std::vector<ActionValue> SelectActionGreedily(
-      caffe::Net<float>& net,
-      const std::vector<FrameDataSp>& last_frames);
+  // Given a vector of frames, return a batch of selected actions + values.
+  std::vector<ActionValue> SelectActionGreedily(caffe::Net<float>& net,
+                                                const FrameVec& frames,
+                                                bool cont);
 
   // Input data into the Frames/Target/Filter layers of the given
   // net. This must be done before forward is called.
   void InputDataIntoLayers(caffe::Net<float>& net,
-                           const FramesLayerInputData& frames_data,
-                           const TargetLayerInputData& target_data,
-                           const FilterLayerInputData& filter_data);
+                           float* frames_input,
+                           float* cont_input,
+                           float* target_input,
+                           float* filter_input);
 
 protected:
   const ActionVect legal_actions_;
@@ -113,11 +138,13 @@ protected:
   const int replay_memory_capacity_;
   const double gamma_;
   const int clone_frequency_; // How often (steps) the clone_net is updated
-  std::deque<Transition> replay_memory_;
+  int replay_memory_size_; // Number of transitions in replay memory
+  ReplayMemory replay_memory_;
   SolverSp solver_;
   NetSp net_; // The primary network used for action selection.
-  NetSp clone_net_; // Clone of primary net. Used to generate targets.
-  TargetLayerInputData dummy_input_data_;
+  NetSp test_net_; // Net used for testing
+  NetSp clone_net_; // Clone of the test net. Used to generate targets.
+  std::array<float, kFramesInputSize> dummy_input_;
   std::mt19937 random_engine;
 };
 

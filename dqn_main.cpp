@@ -58,17 +58,14 @@ void SaveScreen(const ALEScreen& screen, const ALEInterface& ale,
   ale.theOSystem->p_export_screen->save_png(&screen_matrix, filename);
 }
 
-// void SaveInputFrames(const dqn::InputFrames& frames, const string filename) {
-//   std::ofstream ofs;
-//   ofs.open(filename, ios::out | ios::binary);
-//   for (int i = 0; i < dqn::kInputFrameCount; ++i) {
-//     const dqn::FrameData& frame = *frames[i];
-//     for (int j = 0; j < dqn::kCroppedFrameDataSize; ++j) {
-//       ofs.write((char*) &frame[j], sizeof(uint8_t));
-//     }
-//   }
-//   ofs.close();
-// }
+void SaveInputFrame(const dqn::FrameData& frame, const string filename) {
+  std::ofstream ofs;
+  ofs.open(filename, ios::out | ios::binary);
+  for (int i = 0; i < dqn::kCroppedFrameDataSize; ++i) {
+    ofs.write((char*) &frame[i], sizeof(uint8_t));
+  }
+  ofs.close();
+}
 
 void InitializeALE(ALEInterface& ale, bool display_screen, std::string& rom) {
   ale.set("display_screen", display_screen);
@@ -228,6 +225,7 @@ void InitializeALE(ALEInterface& ale, bool display_screen, std::string& rom) {
 double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
                       const bool update) {
   CHECK(!ale.game_over());
+  dqn::Episode episode;
   auto total_score = 0.0;
   for (auto frame = 0; !ale.game_over(); ++frame) {
     const ALEScreen& screen = ale.getScreen();
@@ -242,10 +240,9 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
       static int binary_save_num = 0;
       string fname = FLAGS_save_binary_screen +
           std::to_string(binary_save_num++) + ".bin";
-      // SaveInputFrames(input_frames, fname);
+      SaveInputFrame(*current_frame, fname);
     }
-    // TODO: How do we select action?
-    const auto action = PLAYER_A_NOOP; //dqn.SelectAction(input_frames, epsilon);
+    const auto action = dqn.SelectAction(current_frame, epsilon, frame > 0);
     auto immediate_score = 0.0;
     for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
       immediate_score += ale.act(action);
@@ -262,9 +259,16 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
           dqn::Transition(current_frame, action, reward, boost::none) :
           dqn::Transition(current_frame, action, reward,
                           dqn::PreprocessScreen(ale.getScreen()));
-      dqn.AddTransition(transition);
-      // If the size of replay memory is large enough, update DQN
-      if (dqn.memory_size() > FLAGS_memory_threshold) {
+      episode.push_back(transition);
+    }
+  }
+  if (update) {
+    dqn.RememberEpisode(episode);
+    // If the size of replay memory is large enough, update DQN
+    if (dqn.memory_size() >= FLAGS_memory_threshold &&
+        dqn.memory_episodes() >= dqn::kMinibatchSize) {
+      // TODO: How much should we update?
+      for (int i = 0; i < episode.size(); ++i) {
         dqn.Update();
       }
     }
@@ -415,6 +419,10 @@ int main(int argc, char** argv) {
   int episode = 0;
   double best_score = std::numeric_limits<double>::min();
   while (dqn.current_iteration() < solver_param.max_iter()) {
+    PlayOneEpisode(ale, dqn, 1.0, true);
+    dqn.Update();
+    exit(0);
+
     double epsilon = CalculateEpsilon(dqn.current_iteration());
     double score = PlayOneEpisode(ale, dqn, epsilon, true);
     LOG(INFO) << "Episode " << episode << " score = " << score

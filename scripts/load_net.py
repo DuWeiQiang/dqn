@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys
 from random import seed, choice
-caffe_root = '/u/mhauskn/projects/caffe/'
+caffe_root = '/u/mhauskn/projects/recurrent_caffe/'
 sys.path.insert(0, caffe_root + 'python')
 import caffe
 
@@ -39,21 +39,25 @@ def run_forward(image_dir):
   images = []
   def load_frame_data(fname):
     return np.fromfile(open(fname,'rb'), dtype=np.uint8)\
-             .reshape(4,84,84).astype(np.float32)
+             .reshape(84,84).astype(np.float32)
   for i in xrange(batch_size):
-    fname = join(image_dir, choice(files))
-    images.append(load_frame_data(fname))
+    frame1 = load_frame_data(join(image_dir, choice(files)))
+    frame2 = load_frame_data(join(image_dir, choice(files)))
+    joined_frames = np.asarray([frame1, frame2]) # 2x84x84
+    images.append(joined_frames)
   input_frames = np.asarray(images)
   return forward_from_frames(input_frames)
 
 def forward_from_frames(input_frames):
   batch_size = net.blobs['frames'].data.shape[0]
-  assert input_frames.shape == (32, 4, 84, 84)
-  targets = np.zeros([batch_size,18,1,1], dtype=np.float32)
-  filters = np.zeros([batch_size,18,1,1], dtype=np.float32)
+  assert input_frames.shape == (32, 2, 84, 84)
+  cont = np.arange(2*32).reshape([2,32,1,1]).astype(np.float32)#np.zeros([2,32,1,1], dtype=np.float32)
+  targets = np.zeros([2,batch_size,18,1], dtype=np.float32)
+  filters = np.arange(2*32*18).reshape([2,32,18,1]).astype(np.float32)#np.zeros([2,batch_size,18,1], dtype=np.float32)
   net.set_input_arrays(0, input_frames, np.zeros([batch_size,1,1,1], dtype=np.float32))
-  net.set_input_arrays(1, targets, np.zeros([batch_size,1,1,1], dtype=np.float32))
-  net.set_input_arrays(2, filters, np.zeros([batch_size,1,1,1], dtype=np.float32))
+  net.set_input_arrays(1, cont, np.zeros([2,1,1,1], dtype=np.float32))
+  net.set_input_arrays(2, targets, np.zeros([2,1,1,1], dtype=np.float32))
+  net.set_input_arrays(3, filters, np.zeros([2,1,1,1], dtype=np.float32))
   net.forward()
   return input_frames
 
@@ -288,13 +292,13 @@ def test():
   opt, res = optimize_filter('conv1_layer', 10)
   vis_square(opt, title='Optimized inputs', fname='opt10.png')
 
+
 if len(sys.argv) < 5:
   raise Exception('usage: load_net.py net.prototxt snapshot.caffemodel save_dir image_dir')
 else:
   seed(123)
-  net = caffe.Net(sys.argv[1], sys.argv[2])
-  net.set_phase_test()
-  net.set_mode_cpu()
+  net = caffe.Net(sys.argv[1], sys.argv[2], caffe.TEST)
+  # net.set_mode_cpu()
   print 'net.blobs:'
   for k, v in net.blobs.items():
     print k, v.data.shape
@@ -303,5 +307,6 @@ else:
     print (k, v[0].data.shape)
   save_dir = sys.argv[3]
   image_dir = sys.argv[4]
-  xray_dqn(save_dir, image_dir)
-  exit()
+  frames = run_forward(image_dir)
+  # xray_dqn(save_dir, image_dir)
+  # exit()

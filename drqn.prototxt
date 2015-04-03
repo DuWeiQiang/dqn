@@ -10,6 +10,7 @@ layer {
     height: 84
     width: 84
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "cont_input_layer"
@@ -22,6 +23,7 @@ layer {
     height: 1
     width: 1
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "target_input_layer"
@@ -34,6 +36,7 @@ layer {
     height: 18
     width: 1
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "filter_input_layer"
@@ -46,6 +49,7 @@ layer {
     height: 18
     width: 1
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "slice_frames"
@@ -57,6 +61,7 @@ layer {
     axis: 1
     slice_point: 1
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "reshape_cont_input"
@@ -69,6 +74,7 @@ layer {
       dim: 32
     }
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "filter_reshape"
@@ -82,6 +88,86 @@ layer {
       dim: 18
     }
   }
+  include { phase: TRAIN }
+}
+layer {
+  name: "frames_input_layer"
+  type: "MemoryData"
+  top: "frame_0"
+  top: "dummy_frames"
+  memory_data_param {
+    batch_size: 32
+    channels: 1
+    height: 84
+    width: 84
+  }
+  include { phase: TEST }
+}
+layer {
+  name: "cont_input_layer"
+  type: "MemoryData"
+  top: "cont_input"
+  top: "dummy_cont"
+  memory_data_param {
+    batch_size: 1
+    channels: 32
+    height: 1
+    width: 1
+  }
+  include { phase: TEST }
+}
+layer {
+  name: "target_input_layer"
+  type: "MemoryData"
+  top: "target"
+  top: "dummy_target"
+  memory_data_param {
+    batch_size: 1
+    channels: 32
+    height: 18
+    width: 1
+  }
+  include { phase: TEST }
+}
+layer {
+  name: "filter_input_layer"
+  type: "MemoryData"
+  top: "filter"
+  top: "dummy_filter"
+  memory_data_param {
+    batch_size: 1
+    channels: 32
+    height: 18
+    width: 1
+  }
+  include { phase: TEST }
+}
+layer {
+  name: "reshape_cont_input"
+  type: "Reshape"
+  bottom: "cont_input"
+  top: "reshaped_cont_input"
+  reshape_param {
+    shape {
+      dim: 1
+      dim: 32
+    }
+  }
+  include { phase: TEST }
+}
+layer {
+  name: "filter_reshape"
+  type: "Reshape"
+  bottom: "filter"
+  top: "reshaped_filter_input"
+  reshape_param {
+    shape {
+      dim: 1
+      dim: 32
+      dim: 18
+    }
+  }
+  include { phase: TEST }
 }
 layer {
   name: "silence_layer"
@@ -215,6 +301,21 @@ layer {
       dim: 256
     }
   }
+  include { phase: TRAIN }
+}
+layer {
+  name: "ip1_reshape"
+  type: "Reshape"
+  bottom: "ip1_0"
+  top: "concat_ip1"
+  reshape_param {
+    shape {
+      dim: 1
+      dim: 32
+      dim: 256
+    }
+  }
+  include { phase: TEST }
 }
 layer {
   name: "conv1_layer_1"
@@ -244,6 +345,7 @@ layer {
       value: 0
     }
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "conv1_relu_layer_1"
@@ -253,6 +355,7 @@ layer {
   relu_param {
     negative_slope: 0.01
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "conv2_layer_1"
@@ -282,6 +385,7 @@ layer {
       value: 0
     }
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "conv2_relu_layer_1"
@@ -291,6 +395,7 @@ layer {
   relu_param {
     negative_slope: 0.01
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "ip1_layer_1"
@@ -318,6 +423,7 @@ layer {
       value: 1
     }
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "ip1_relu_layer_1"
@@ -327,6 +433,7 @@ layer {
   relu_param {
     negative_slope: 0.01
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "ip1_reshape_1"
@@ -340,6 +447,7 @@ layer {
       dim: 256
     }
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "concat_ip1"
@@ -350,6 +458,7 @@ layer {
   concat_param {
     concat_dim: 0
   }
+  include { phase: TRAIN }
 }
 layer {
   name: "lstm1"
