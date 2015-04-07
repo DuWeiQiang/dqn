@@ -61,9 +61,9 @@ const std::array<int, 3> PixelToRGB(const pixel_t& pixel) {
  * Convert RGB values to a grayscale value [0,255].
  */
 uint8_t RGBToGrayscale(const std::array<int, 3>& rgb) {
-  assert(rgb[0] >= 0 && rgb[0] <= 255);
-  assert(rgb[1] >= 0 && rgb[1] <= 255);
-  assert(rgb[2] >= 0 && rgb[2] <= 255);
+  CHECK(rgb[0] >= 0 && rgb[0] <= 255);
+  CHECK(rgb[1] >= 0 && rgb[1] <= 255);
+  CHECK(rgb[2] >= 0 && rgb[2] <= 255);
   // Normalized luminosity grayscale
   return rgb[0] * 0.21 + rgb[1] * 0.72 + rgb[2] * 0.07;
 }
@@ -75,7 +75,7 @@ uint8_t PixelToGrayscale(const pixel_t pixel) {
 FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
   const int raw_screen_width = raw_screen.width();
   const int raw_screen_height = raw_screen.height();
-  assert(raw_screen_height > raw_screen_width);
+  CHECK_GT(raw_screen_height, raw_screen_width);
   const auto raw_pixels = raw_screen.getArray();
   auto screen = std::make_shared<FrameData>();
   // Crop the top of the screen
@@ -129,9 +129,9 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
 
 std::string PrintQValues(
     const std::vector<float>& q_values, const ActionVect& actions) {
-  assert(!q_values.empty());
-  assert(!actions.empty());
-  assert(q_values.size() == actions.size());
+  CHECK_GT(q_values.size(), 0);
+  CHECK_GT(actions.size(), 0);
+  CHECK_EQ(q_values.size(), actions.size());
   std::ostringstream actions_buf;
   std::ostringstream q_values_buf;
   for (auto i = 0; i < q_values.size(); ++i) {
@@ -172,26 +172,26 @@ void DQN::Initialize() {
   solver_.reset(caffe::GetSolver<float>(solver_param_));
   // solver_->PreSolve();
   net_ = solver_->net();
-  assert(solver_->test_nets().size() == 1);
+  CHECK_EQ(solver_->test_nets().size(), 1);
   test_net_ = solver_->test_nets()[0];
   std::fill(dummy_input_.begin(), dummy_input_.end(), 0.0);
   // Check the primary network
-  assert(HasBlobSize(*net_->blob_by_name("frames"), kMinibatchSize,
+  CHECK(HasBlobSize(*net_->blob_by_name("frames"), kMinibatchSize,
                      kUnroll, kCroppedFrameSize, kCroppedFrameSize));
-  assert(HasBlobSize(*net_->blob_by_name("target"),
+  CHECK(HasBlobSize(*net_->blob_by_name("target"),
                      kUnroll, kMinibatchSize, kOutputCount, 1));
-  assert(HasBlobSize(*net_->blob_by_name("filter"),
+  CHECK(HasBlobSize(*net_->blob_by_name("filter"),
                      kUnroll, kMinibatchSize, kOutputCount, 1));
-  assert(HasBlobSize(*net_->blob_by_name("cont_input"),
+  CHECK(HasBlobSize(*net_->blob_by_name("cont_input"),
                      kUnroll, kMinibatchSize, 1, 1));
   // Check the test network
-  assert(HasBlobSize(*test_net_->blob_by_name("frame_0"),
+  CHECK(HasBlobSize(*test_net_->blob_by_name("frame_0"),
                      kMinibatchSize, 1, kCroppedFrameSize, kCroppedFrameSize));
-  assert(HasBlobSize(*test_net_->blob_by_name("target"),
+  CHECK(HasBlobSize(*test_net_->blob_by_name("target"),
                      1, kMinibatchSize, kOutputCount, 1));
-  assert(HasBlobSize(*test_net_->blob_by_name("filter"),
+  CHECK(HasBlobSize(*test_net_->blob_by_name("filter"),
                      1, kMinibatchSize, kOutputCount, 1));
-  assert(HasBlobSize(*test_net_->blob_by_name("cont_input"),
+  CHECK(HasBlobSize(*test_net_->blob_by_name("cont_input"),
                      1, kMinibatchSize, 1, 1));
   CloneNet(*test_net_);
   LOG(INFO) << "Finished " << net_->name() << " Initialization";
@@ -204,8 +204,8 @@ Action DQN::SelectAction(const FrameDataSp& frame, const double epsilon,
 
 ActionVect DQN::SelectActions(const FrameVec& frames_batch,
                               const double epsilon, bool cont) {
-  assert(epsilon >= 0.0 && epsilon <= 1.0);
-  assert(frames_batch.size() <= kMinibatchSize);
+  CHECK(epsilon <= 1.0 && epsilon >= 0.0);
+  CHECK_LE(frames_batch.size(), kMinibatchSize);
   ActionVect actions(frames_batch.size());
   if (std::uniform_real_distribution<>(0.0, 1.0)(random_engine) < epsilon) {
     // Select randomly
@@ -218,7 +218,7 @@ ActionVect DQN::SelectActions(const FrameVec& frames_batch,
     // Select greedily
     std::vector<ActionValue> actions_and_values =
         SelectActionGreedily(*test_net_, frames_batch, cont);
-    assert(actions_and_values.size() == actions.size());
+    CHECK_EQ(actions_and_values.size(), actions.size());
     for (int i=0; i<actions_and_values.size(); ++i) {
       actions[i] = actions_and_values[i].first;
     }
@@ -260,8 +260,8 @@ DQN::SelectActionGreedily(caffe::Net<float>& net, const FrameVec& frame_batch,
   for (int i = 0; i < frame_batch.size(); ++i) {
     // Get the Q values from the net
     const auto action_evaluator = [&](Action action) {
-      const auto q = q_values_blob->data_at(i, static_cast<int>(action), 0, 0);
-      assert(!std::isnan(q));
+      const auto q = q_values_blob->data_at(0, i, static_cast<int>(action), 0);
+      CHECK(!std::isnan(q));
       return q;
     };
     std::vector<float> q_values(legal_actions_.size());
@@ -331,7 +331,7 @@ void DQN::Update() {
         all_episodes_finished = true;
       } else {
         actions_and_values =
-            SelectActionGreedily(*clone_net_, next_frames, t>0);
+            SelectActionGreedily(*test_net_, next_frames, t>0);
       }
       // Generate the targets/filter/frames inputs
       int target_value_idx = 0;
