@@ -395,7 +395,7 @@ int main(int argc, char** argv) {
 
   int last_eval_iter = 0;
   int episode = 0;
-  double best_score = std::numeric_limits<double>::min();
+  double best_score = std::numeric_limits<double>::lowest();
   while (dqn.current_iteration() < solver_param.max_iter()) {
     double epsilon = CalculateEpsilon(dqn.current_iteration());
     double score = PlayOneEpisode(ale, dqn, epsilon, true);
@@ -408,8 +408,8 @@ int main(int argc, char** argv) {
     // If the size of replay memory is large enough, update DQN
     if (dqn.memory_size() >= FLAGS_memory_threshold &&
         dqn.memory_episodes() >= dqn::kMinibatchSize) {
-        dqn.Update();
-        LOG(INFO) << "Finished Update iter = " << dqn.current_iteration();
+      dqn.Update();
+      LOG(INFO) << "Finished Update iter = " << dqn.current_iteration();
     }
 
     if (dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
