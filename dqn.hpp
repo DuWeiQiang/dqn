@@ -69,6 +69,7 @@ public:
         gamma_(gamma),
         clone_frequency_(clone_frequency),
         replay_memory_size_(0),
+        last_clone_iter_(0),
         random_engine(0) {}
 
   // Initialize DQN. Must be called before calling any other method.
@@ -144,6 +145,7 @@ protected:
   NetSp net_; // The primary network used for action selection.
   NetSp test_net_; // Net used for testing
   NetSp clone_net_; // Clone of the test net. Used to generate targets.
+  int last_clone_iter_; // Iteration in which the net was last cloned
   std::array<float, kFramesInputSize> dummy_input_;
   std::mt19937 random_engine;
 };

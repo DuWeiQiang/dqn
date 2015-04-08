@@ -287,9 +287,10 @@ void DQN::RememberEpisode(const Episode& episode) {
 
 void DQN::Update() {
   // Every clone_iters steps, update the clone_net_ to equal the primary net
-  if (current_iteration() % clone_frequency_ == 0) {
+  if (current_iteration() >= last_clone_iter_ + clone_frequency_) {
     LOG(INFO) << "Iter " << current_iteration() << ": Updating Clone Net";
     CloneNet(*test_net_);
+    last_clone_iter_ = current_iteration();
   }
 
   // Randomly select unique episodes to learn from
@@ -331,7 +332,7 @@ void DQN::Update() {
         all_episodes_finished = true;
       } else {
         actions_and_values =
-            SelectActionGreedily(*test_net_, next_frames, t>0);
+            SelectActionGreedily(*clone_net_, next_frames, t>0);
       }
       // Generate the targets/filter/frames inputs
       int target_value_idx = 0;
@@ -366,6 +367,8 @@ void DQN::Update() {
                         target_input.data(), filter_input.data());
     solver_->Step(1);
   }
+  // Update test_net_ parameters to match net_
+  test_net_->ShareTrainedLayersWith(net_.get());
 }
 
 void DQN::CloneNet(caffe::Net<float>& net) {
