@@ -259,9 +259,11 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
 /**
  * Evaluate the current player
  */
-double Evaluate(dqn::DQN& dqn) {
-  std::vector<double> scores = PlayParallelEpisodes(
-      dqn, FLAGS_evaluate_with_epsilon, false);
+double Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
+  // std::vector<double> scores = PlayParallelEpisodes(
+  //     dqn, FLAGS_evaluate_with_epsilon, false);
+  std::vector<double> scores;
+  scores.push_back(PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, false));
   double total_score = 0.0;
   for (auto score : scores) {
     total_score += score;
@@ -284,8 +286,9 @@ int main(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
   google::InstallFailureSignalHandler();
-  // google::LogToStderr();
-
+  if (FLAGS_evaluate) {
+    google::LogToStderr();
+  }
   if (FLAGS_rom.empty()) {
     LOG(ERROR) << "Rom file required but not set.";
     LOG(ERROR) << "Usage: " << gflags::ProgramUsage();
@@ -306,45 +309,47 @@ int main(int argc, char** argv) {
     exit(1);
   }
   path save_path(FLAGS_save);
-  path snapshot_dir(current_path());
-  if (is_directory(save_path)) {
-    snapshot_dir = save_path;
-    save_path /= rom_file.stem();
-  } else {
-    if (save_path.has_parent_path()) {
-      snapshot_dir = save_path.parent_path();
+  if (!FLAGS_evaluate) {
+    path snapshot_dir(current_path());
+    if (is_directory(save_path)) {
+      snapshot_dir = save_path;
+      save_path /= rom_file.stem();
+    } else {
+      if (save_path.has_parent_path()) {
+        snapshot_dir = save_path.parent_path();
+      }
+      save_path += "_";
+      save_path += rom_file.stem();
     }
-    save_path += "_";
-    save_path += rom_file.stem();
-  }
-  // Check for files that may be overwritten
-  assert(is_directory(snapshot_dir));
-  LOG(INFO) << "Snapshots Prefix: " << save_path;
-  directory_iterator end;
-  for(directory_iterator it(snapshot_dir); it!=end; ++it) {
-    if(boost::filesystem::is_regular_file(it->status())) {
-      std::string save_path_str = save_path.stem().native();
-      std::string other_str = it->path().filename().native();
-      auto res = std::mismatch(save_path_str.begin(),
-                               save_path_str.end(),
-                               other_str.begin());
-      if (res.first == save_path_str.end()) {
-        LOG(ERROR) << "Existing file " << it->path()
-                   << " conflicts with save path " << save_path;
-        LOG(ERROR) << "Please remove this file or specify another save path.";
-        exit(1);
+    // Check for files that may be overwritten
+    assert(is_directory(snapshot_dir));
+    LOG(INFO) << "Snapshots Prefix: " << save_path;
+    directory_iterator end;
+    for(directory_iterator it(snapshot_dir); it!=end; ++it) {
+      if(boost::filesystem::is_regular_file(it->status())) {
+        std::string save_path_str = save_path.stem().native();
+        std::string other_str = it->path().filename().native();
+        auto res = std::mismatch(save_path_str.begin(),
+                                 save_path_str.end(),
+                                 other_str.begin());
+        if (res.first == save_path_str.end()) {
+          LOG(ERROR) << "Existing file " << it->path()
+                     << " conflicts with save path " << save_path;
+          LOG(ERROR) << "Please remove this file or specify another save path.";
+          exit(1);
+        }
       }
     }
+    // Set the logging destinations
+    google::SetLogDestination(google::GLOG_INFO,
+                              (save_path.native() + "_INFO_").c_str());
+    google::SetLogDestination(google::GLOG_WARNING,
+                              (save_path.native() + "_WARNING_").c_str());
+    google::SetLogDestination(google::GLOG_ERROR,
+                              (save_path.native() + "_ERROR_").c_str());
+    google::SetLogDestination(google::GLOG_FATAL,
+                              (save_path.native() + "_FATAL_").c_str());
   }
-  // Set the logging destinations
-  google::SetLogDestination(google::GLOG_INFO,
-                            (save_path.native() + "_INFO_").c_str());
-  google::SetLogDestination(google::GLOG_WARNING,
-                            (save_path.native() + "_WARNING_").c_str());
-  google::SetLogDestination(google::GLOG_ERROR,
-                            (save_path.native() + "_ERROR_").c_str());
-  google::SetLogDestination(google::GLOG_FATAL,
-                            (save_path.native() + "_FATAL_").c_str());
 
   if (FLAGS_gpu) {
     caffe::Caffe::set_mode(caffe::Caffe::GPU);
@@ -388,7 +393,7 @@ int main(int argc, char** argv) {
       auto score = PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, false);
       LOG(INFO) << "Score " << score;
     } else {
-      Evaluate(dqn);
+      Evaluate(ale, dqn);
     }
     return 0;
   }
@@ -413,7 +418,7 @@ int main(int argc, char** argv) {
     }
 
     if (dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
-      double avg_score = Evaluate(dqn);
+      double avg_score = Evaluate(ale, dqn);
       if (avg_score > best_score) {
         LOG(INFO) << "iter " << dqn.current_iteration()
                   << " New High Score: " << avg_score;
@@ -424,6 +429,6 @@ int main(int argc, char** argv) {
     }
   }
   if (dqn.current_iteration() >= last_eval_iter) {
-    Evaluate(dqn);
+    Evaluate(ale, dqn);
   }
 };
