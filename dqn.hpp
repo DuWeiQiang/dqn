@@ -13,7 +13,7 @@
 
 namespace dqn {
 
-constexpr auto kUnroll               = 2;
+constexpr auto kUnroll               = 1;
 constexpr auto kRawFrameHeight       = 210;
 constexpr auto kRawFrameWidth        = 160;
 constexpr auto kCroppedFrameSize     = 84;
@@ -95,8 +95,8 @@ public:
   // Add an episode to the replay memory
   void RememberEpisode(const Episode& episode);
 
-  // Update DQN using one minibatch
-  void Update();
+  // Update DQN. Returns the number of solver steps executed.
+  int Update();
 
   // Clear the replay memory
   void ClearReplayMemory() { replay_memory_.clear(); }

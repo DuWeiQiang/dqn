@@ -398,6 +398,7 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  dqn.Snapshot();
   int last_eval_iter = 0;
   int episode = 0;
   double best_score = std::numeric_limits<double>::lowest();
