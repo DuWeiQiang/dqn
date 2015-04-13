@@ -32,33 +32,39 @@ def deprocess(input_, mean=None, input_scale=None,
       decaf_in = decaf_in[:, :, channel_order_inverse]
   return decaf_in
 
-def run_forward(image_dir):
+def run_forward(image_dir, input_layer_name):
   assert os.path.isdir(image_dir)
-  batch_size = net.blobs['frames'].data.shape[0]
+  assert input_layer_name in net.blobs.keys()
+  n,c,w,h = net.blobs[input_layer_name].data.shape
+  assert w == 84 and h == 84
   files = [f for f in os.listdir(image_dir) if isfile(join(image_dir,f)) ]
+  fnum = 0
   images = []
   def load_frame_data(fname):
     return np.fromfile(open(fname,'rb'), dtype=np.uint8)\
              .reshape(84,84).astype(np.float32)
-  for i in xrange(batch_size):
-    frame1 = load_frame_data(join(image_dir, choice(files)))
-    frame2 = load_frame_data(join(image_dir, choice(files)))
-    joined_frames = np.asarray([frame1, frame2]) # 2x84x84
+    # return np.ones([84,84], dtype=np.float32)
+  for i in xrange(n):
+    frames = []
+    for j in xrange(c):
+      frames.append(load_frame_data(join(image_dir, files[fnum])))
+      fnum += 1
+    joined_frames = np.asarray(frames)
     images.append(joined_frames)
   input_frames = np.asarray(images)
-  return forward_from_frames(input_frames)
+  return forward_from_frames(input_frames, input_layer_name)
 
-def forward_from_frames(input_frames):
-  batch_size = net.blobs['frames'].data.shape[0]
-  assert input_frames.shape == (32, 2, 84, 84)
-  cont = np.arange(2*32).reshape([2,32,1,1]).astype(np.float32)#np.zeros([2,32,1,1], dtype=np.float32)
-  targets = np.zeros([2,batch_size,18,1], dtype=np.float32)
-  filters = np.arange(2*32*18).reshape([2,32,18,1]).astype(np.float32)#np.zeros([2,batch_size,18,1], dtype=np.float32)
-  net.set_input_arrays(0, input_frames, np.zeros([batch_size,1,1,1], dtype=np.float32))
-  net.set_input_arrays(1, cont, np.zeros([2,1,1,1], dtype=np.float32))
-  net.set_input_arrays(2, targets, np.zeros([2,1,1,1], dtype=np.float32))
-  net.set_input_arrays(3, filters, np.zeros([2,1,1,1], dtype=np.float32))
+def forward_from_frames(input_frames, input_layer_name):
+  n,c,w,h = net.blobs[input_layer_name].data.shape
+  cont = np.ones([c,n,1,1], dtype=np.float32)
+  targets = np.zeros([c,n,18,1], dtype=np.float32)
+  filters = np.ones([c,n,18,1], dtype=np.float32)
+  net.set_input_arrays(0, input_frames, np.zeros([n,1,1,1], dtype=np.float32))
+  net.set_input_arrays(1, cont, np.zeros([c,1,1,1], dtype=np.float32))
+  net.set_input_arrays(2, targets, np.zeros([c,1,1,1], dtype=np.float32))
+  net.set_input_arrays(3, filters, np.zeros([c,1,1,1], dtype=np.float32))
   net.forward()
+  net.backward()
   return input_frames
 
 # take an array of shape (n, height, width) or (n, height, width, channels)
@@ -135,7 +141,9 @@ def vis_fc_incoming_weights(layer_name, activation=None, reshape=None, fname='',
   vis_square(weights, title=title, fname=fname)
 
 def vis_weights(layer_name, fname=''):
-  weights = net.params[layer_name][0].data[0]
+  weights = net.params[layer_name][0].data
+  while len(weights.shape) < 3:
+    weights = np.expand_dims(weights, axis=0)
   title = '[Weights] Layer=%s (%.3f,%.3f,%.3f)'\
           %(layer_name, np.min(weights), np.mean(weights), np.max(weights))
   vis_square(weights, title=title, fname=fname)
@@ -155,46 +163,111 @@ def vis_biases(layer_name, fname=''):
   else:
     plt.savefig(fname)
 
-def xray_dqn(save_dir, image_dir):
+def save_blobs(net, save_dir, use_diff=False):
+  blob_num = 0
+  for blob_name in net.blobs.keys():
+    blob_num += 1
+    blob = net.blobs[blob_name]
+    data = blob.diff if use_diff else blob.data
+    shape = data.shape
+    squeezed = np.squeeze(data)
+    padsize=1
+    if len(squeezed.shape) > 2:
+      for n in xrange(squeezed.shape[0]):
+        d = squeezed[n]
+        while len(d.shape) < 3:
+          d = np.expand_dims(d, axis=0)
+          padsize=0
+        title = 'Blob=%s Shape=%s Num=%s (%.3f, %.3f, %.3f)'\
+                %(blob_name, shape, n, np.min(d), np.mean(d), np.max(d))
+        print '[X-Ray] Saving Blob:', blob_name, 'Num =', n, 'Shape =', shape
+        fname = 'blob%i_%s_n%i.png'%(blob_num,blob_name,n)
+        vis_square(d, title=title, fname=join(save_dir,fname),
+                   padsize=padsize, padval=1)
+    else:
+      while len(squeezed.shape) < 3:
+        squeezed = np.expand_dims(squeezed, axis=0)
+        padsize=0
+      title = 'Blob=%s Shape=%s (%.3f, %.3f, %.3f)'\
+              %(blob_name, shape, np.min(data), np.mean(data), np.max(data))
+      fname = 'blob%i_%s.png'%(blob_num,blob_name)
+      print '[X-Ray] Saving Blob:', blob_name, 'Shape =', shape
+      vis_square(squeezed, title=title, fname=join(save_dir,fname),
+                 padsize=padsize, padval=1)
+
+def save_params(net, save_dir, iteration=None, cnt=None):
+  iteration = 'Iter=%s'%iteration if iteration is not None else ''
+  cnt = '_%02d'%cnt if cnt is not None else ''
+  layer_num = 0
+  for param_name in net.params.keys():
+    layer_num += 1
+    param = net.params[param_name][0]
+    data = param.data
+    shape = data.shape
+    squeezed = np.squeeze(data)
+    padsize=1
+    if len(squeezed.shape) > 3:
+      for n in xrange(squeezed.shape[0]):
+        d = squeezed[n]
+        while len(d.shape) < 3:
+          d = np.expand_dims(d, axis=0)
+          padsize=0
+        title = '%s Param=%s Shape=%s Num=%s (%.3f, %.3f, %.3f)'\
+                %(iteration, param_name, shape, n, np.min(d), np.mean(d), np.max(d))
+        fname = 'param%i_%s_n%i%s.png'%(layer_num,param_name,n,cnt)
+        print '[X-Ray] Saving Param:', param_name, 'Num =', n, 'Shape =',shape
+        vis_square(d, title=title, fname=join(save_dir,fname),
+                   padsize=padsize, padval=1)
+    else:
+      while len(squeezed.shape) < 3:
+        squeezed = np.expand_dims(squeezed, axis=0)
+        padsize=0
+      title = '%s Param=%s Shape=%s (%.3f, %.3f, %.3f)'\
+              %(iteration, param_name, shape, np.min(data), np.mean(data), np.max(data))
+      fname = 'param%i_%s%s.png'%(layer_num,param_name,cnt)
+      print '[X-Ray] Saving Param:', param_name, 'Shape =', shape
+      vis_square(squeezed, title=title, fname=join(save_dir,fname),
+                 padsize=padsize, padval=1)
+
+def xray(net, save_dir):
   if not os.path.exists(save_dir):
     os.makedirs(save_dir)
-  # Visualize the conv layer weights + biases
-  for layer in ['conv1_layer', 'conv2_layer']:
-    for i in xrange(net.params[layer][0].data.shape[1]):
-      vis_dim(layer, i, join(save_dir, layer + '_dim' + str(i) +'.png'))
-    vis_mean_filters(layer, join(save_dir, layer + '_mean.png'))
-    vis_biases(layer, join(save_dir, layer+'_biases.png'))
-  # Visualize fc layer weights + biases
-  for layer in ['ip1_layer', 'ip2_layer']:
-    vis_weights(layer, fname=join(save_dir, layer + '_weights.png'))
-    vis_biases(layer, join(save_dir, layer + '_biases.png'))
-  # Visualize the Activations
-  act_dir = join(save_dir, 'activations')
-  if not os.path.exists(act_dir):
-    os.makedirs(act_dir)
-  frames = run_forward(image_dir)
-  for i in xrange(frames.shape[0]):
-    title = '[Input] Blob=%s Num=%d (%.3f,%.3f,%.3f)'\
-            %('frames', i, np.min(frames), np.mean(frames), np.max(frames))
-    vis_square(frames[i], padval=1, title=title,
-               fname=join(act_dir,'input_activations_' + str(i) + '.png'))
-    # Visualize the activations
-    for blob_name in ['conv1', 'conv2', 'ip1', 'q_values']:
-      vis_activations(blob_name, num=i, fname=join(
-        act_dir, blob_name + '_activations_' + str(i) + '.png'))
-  # Visualize the most active FC-1 nodes
-  # sorted_activations = np.argsort(net.blobs['ip1'].data[0].flatten())[::-1]
-  # for i in xrange(5):
-  #   idx = sorted_activations[i]
-  #   activation = net.blobs['ip1'].data[0].flatten()[idx]
-  #   vis_fc_incoming_weights('ip1_layer', activation, [32,9,9],
-  #                           fname=join(save_dir,'ip1_unit'+str(idx)+'.png'),
-  #                           unit=idx)
+  param_dir = join(save_dir, 'params')
+  if not os.path.exists(param_dir):
+    os.makedirs(param_dir)
+  save_params(net, save_dir=param_dir)
+
+  blob_dir = join(save_dir, 'blob_data')
+  if not os.path.exists(blob_dir):
+    os.makedirs(blob_dir)
+  save_blobs(net, save_dir=blob_dir, use_diff=False)
+
+  blob_diff = join(save_dir, 'blob_diff')
+  if not os.path.exists(blob_diff):
+    os.makedirs(blob_diff)
+  save_blobs(net, save_dir=blob_diff, use_diff=True)
   # Visualize the maximizing patches
-  patch_dir = join(save_dir,'maximizing_patches')
-  os.makedirs(patch_dir)
-  save_maximizing_patches('conv1_layer','conv1', image_dir, patch_dir)
-  save_maximizing_patches('conv2_layer','conv2', image_dir, patch_dir)
+  # patch_dir = join(save_dir,'maximizing_patches')
+  # os.makedirs(patch_dir)
+  # save_maximizing_patches('conv1_layer','conv1', image_dir, patch_dir)
+  # save_maximizing_patches('conv2_layer','conv2', image_dir, patch_dir)
+
+def fmri(snapshot_prefix, save_dir, net_prototxt='drqn.prototxt', phase=caffe.TRAIN):
+  if not os.path.exists(save_dir):
+    os.makedirs(save_dir)
+  movie_dir = join(save_dir, 'movie')
+  if not os.path.exists(movie_dir):
+    os.makedirs(movie_dir)
+  import subprocess
+  import glob
+  for i, caffemodel in enumerate(glob.glob(snapshot_prefix + '*.caffemodel')):
+    iteration = caffemodel.split('_iter_')[-1].split('.caffemodel')[0]
+    net = caffe.Net(net_prototxt, caffemodel, phase)
+    save_params(net, save_dir=movie_dir, iteration=iteration, cnt=i)
+  for prefix in list(set(['_'.join(f.split('_')[:-1])
+                          for f in glob.glob(join(movie_dir,'*.png'))])):
+    cmd = 'ffmpeg -framerate 1 -i %s_%%02d.png -r 30 -pix_fmt yuv420p %s.mp4'%(prefix,prefix)
+    subprocess.check_call(cmd.split(' '))
 
 # Use scipy.optimize to find the optimal input to maximize a convolutional filter
 def optimize_filter(layer_name, filter_num=0):
@@ -292,21 +365,24 @@ def test():
   opt, res = optimize_filter('conv1_layer', 10)
   vis_square(opt, title='Optimized inputs', fname='opt10.png')
 
-
-if len(sys.argv) < 5:
-  raise Exception('usage: load_net.py net.prototxt snapshot.caffemodel save_dir image_dir')
-else:
-  seed(123)
-  net = caffe.Net(sys.argv[1], sys.argv[2], caffe.TEST)
-  # net.set_mode_cpu()
-  print 'net.blobs:'
-  for k, v in net.blobs.items():
-    print k, v.data.shape
-  print 'net.params:'
-  for k, v in net.params.items():
-    print (k, v[0].data.shape)
-  save_dir = sys.argv[3]
-  image_dir = sys.argv[4]
-  frames = run_forward(image_dir)
-  # xray_dqn(save_dir, image_dir)
-  # exit()
+seed(123)
+prototxt = 'drqn.prototxt'
+snapshot = 'state/pong_iter_250206.caffemodel'
+snapshot_prefix = snapshot.split('_iter_')[0]
+phase = caffe.TEST
+net = caffe.Net(prototxt, snapshot, phase)
+image_dir = 'screen/'
+save_dir = 'pong_xray/'
+print 'net.blobs:'
+for k, v in net.blobs.items():
+  d = v.data
+  print k, d.shape
+print 'net.params:'
+for k, v in net.params.items():
+  w = v[0].data
+  b = v[1].data
+  print k, '[Weights]', w.shape, '[bias]', b.shape
+input_layer_name = net.blobs.keys()[0]
+run_forward(image_dir, input_layer_name)
+xray(net, save_dir)
+fmri(snapshot_prefix, save_dir, net_prototxt=prototxt, phase=caffe.TEST)
