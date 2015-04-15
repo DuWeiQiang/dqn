@@ -82,7 +82,6 @@ layer {
   bottom: "dummy_filter"
   bottom: "dummy_target"
   bottom: "cont_input"
-  bottom: "dummy_cont"
 }
 layer {
   name: "conv1_layer_0"

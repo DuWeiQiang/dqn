@@ -177,29 +177,32 @@ void DQN::RestoreSolver(const std::string& solver_bin) {
 void DQN::Initialize() {
   // Initialize net and solver
   solver_.reset(caffe::GetSolver<float>(solver_param_));
-  // solver_->PreSolve();
   net_ = solver_->net();
   CHECK_EQ(solver_->test_nets().size(), 1);
   test_net_ = solver_->test_nets()[0];
+  // Test Net shares parameters with train net at all times
+  test_net_->ShareTrainedLayersWith(net_.get());
+  // Clone net maintains its own set of parameters
+  CloneNet(*test_net_);
   std::fill(dummy_input_.begin(), dummy_input_.end(), 0.0);
   // Check the primary network
   CHECK(HasBlobSize(*net_->blob_by_name("frames"), kMinibatchSize,
-                     kUnroll, kCroppedFrameSize, kCroppedFrameSize));
+                    kUnroll, kCroppedFrameSize, kCroppedFrameSize));
   CHECK(HasBlobSize(*net_->blob_by_name("target"),
-                     kUnroll, kMinibatchSize, kOutputCount, 1));
+                    kUnroll, kMinibatchSize, kOutputCount, 1));
   CHECK(HasBlobSize(*net_->blob_by_name("filter"),
-                     kUnroll, kMinibatchSize, kOutputCount, 1));
+                    kUnroll, kMinibatchSize, kOutputCount, 1));
   CHECK(HasBlobSize(*net_->blob_by_name("cont_input"),
-                     kUnroll, kMinibatchSize, 1, 1));
+                    kUnroll, kMinibatchSize, 1, 1));
   // Check the test network
   CHECK(HasBlobSize(*test_net_->blob_by_name("frame_0"),
-                     kMinibatchSize, 1, kCroppedFrameSize, kCroppedFrameSize));
+                    kMinibatchSize, 1, kCroppedFrameSize, kCroppedFrameSize));
   CHECK(HasBlobSize(*test_net_->blob_by_name("target"),
-                     1, kMinibatchSize, kOutputCount, 1));
+                    1, kMinibatchSize, kOutputCount, 1));
   CHECK(HasBlobSize(*test_net_->blob_by_name("filter"),
-                     1, kMinibatchSize, kOutputCount, 1));
+                    1, kMinibatchSize, kOutputCount, 1));
   CHECK(HasBlobSize(*test_net_->blob_by_name("cont_input"),
-                     1, kMinibatchSize, 1, 1));
+                    1, kMinibatchSize, 1, 1));
   LOG(INFO) << "Finished " << net_->name() << " Initialization";
 }
 
@@ -243,12 +246,13 @@ std::vector<ActionValue>
 DQN::SelectActionGreedily(caffe::Net<float>& net, const FrameVec& frame_batch,
                           bool cont) {
   CHECK_EQ(net.phase(), caffe::TEST);
+  CHECK(net.has_blob("frame_0"));
+  const auto frames_blob = net.blob_by_name("frame_0");
   CHECK_LE(frame_batch.size(), kMinibatchSize);
   std::array<float, kTestFramesInputSize> frames_input;
   frames_input.fill(0.0);
   std::array<float, kTestContInputSize> cont_input;
   cont_input.fill(cont);
-  const auto frames_blob = net.blob_by_name("frame_0");
   // Input frames to the net and compute Q values for each legal action
   for (int n = 0; n < frame_batch.size(); ++n) {
     const FrameDataSp& frame_data = frame_batch[n];
@@ -293,12 +297,10 @@ void DQN::RememberEpisode(const Episode& episode) {
 }
 
 int DQN::Update() {
-  // Every clone_iters steps, update the clone_net_ to equal the primary net
+  // Every clone_iters steps, update the clone_net_
   if (!clone_net_ || current_iteration() >= last_clone_iter_ + clone_frequency_) {
     LOG(INFO) << "Iter " << current_iteration() << ": Updating Clone Net";
-    test_net_->ShareTrainedLayersWith(net_.get());
-    CloneNet(*test_net_); // TODO: This likely is not necessary
-    clone_net_->ShareTrainedLayersWith(test_net_.get());
+    CloneNet(*test_net_);
     last_clone_iter_ = current_iteration();
   }
 
@@ -324,8 +326,8 @@ int DQN::Update() {
   int t = 0;
   int update_step = 0;
   while (!all_episodes_finished) {
-    frame_input.fill(1.0f);
-    filter_input.fill(1.0f);
+    frame_input.fill(0.0f);
+    filter_input.fill(0.0f);
     target_input.fill(0.0f);
     cont_input.fill(1.0f);
     if (t == 0) { // Cont is zeroed for the first step of the episode
@@ -405,15 +407,98 @@ int DQN::Update() {
     solver_->Step(1);
     update_step++;
   }
-  // Update test_net_ parameters to match net_
-  test_net_->ShareTrainedLayersWith(net_.get());
   return update_step;
+}
+
+int DQN::UpdateRandom() {
+  // Every clone_iters steps, update the clone_net_
+  if (!clone_net_ || current_iteration() >= last_clone_iter_ + clone_frequency_) {
+    LOG(INFO) << "Iter " << current_iteration() << ": Updating Clone Net";
+    CloneNet(*test_net_);
+    last_clone_iter_ = current_iteration();
+  }
+
+  const auto frames_blob = net_->blob_by_name("frames");
+  const auto cont_blob = net_->blob_by_name("cont_input");
+  const auto filter_blob = net_->blob_by_name("filter");
+  const auto target_blob = net_->blob_by_name("target");
+
+  // Randomly select unique episodes to learn from
+  std::vector<int> ep_inds(replay_memory_.size());
+  std::iota(ep_inds.begin(), ep_inds.end(), 0);
+  std::random_shuffle(ep_inds.begin(), ep_inds.end());
+  if (ep_inds.size() > kMinibatchSize) {
+    ep_inds.resize(kMinibatchSize);
+  }
+
+  FramesLayerInputData frame_input;
+  TargetLayerInputData target_input;
+  FilterLayerInputData filter_input;
+  ContLayerInputData cont_input;
+  frame_input.fill(0.0f);
+  filter_input.fill(0.0f);
+  target_input.fill(0.0f);
+  cont_input.fill(0.0f);
+
+  // Time to start each episode
+  std::vector<int> ep_starts(ep_inds.size());
+  for (int n = 0; n < ep_inds.size(); ++n) {
+    ep_starts[n] = std::uniform_int_distribution<int>
+        (0, replay_memory_[ep_inds[n]].size()-1)(random_engine);
+  }
+
+  for (int i = 0; i < kUnroll; ++i) {
+    FrameVec next_frames;
+    next_frames.reserve(ep_inds.size());
+    for (int n = 0; n < ep_inds.size(); ++n) {
+      const Episode& episode = replay_memory_[ep_inds[n]];
+      int t = ep_starts[n] + i;
+      if (t < episode.size() && std::get<3>(episode[t])) {
+        next_frames.emplace_back(std::get<3>(episode[t]).get());
+      }
+    }
+    // Get the next state QValues
+    std::vector<ActionValue> actions_and_values =
+        SelectActionGreedily(*clone_net_, next_frames, false);
+    // Generate the targets/filter/frames inputs
+    int target_value_idx = 0;
+    for (int n = 0; n < ep_inds.size(); ++n) {
+      int t = ep_starts[n] + i;
+      const Episode& episode = replay_memory_[ep_inds[n]];
+      if (t < episode.size()) {
+        const auto& transition = episode[t];
+        const int action = static_cast<int>(std::get<1>(transition));
+        CHECK_LT(action, kOutputCount);
+        const float reward = std::get<2>(transition);
+        CHECK(reward >= -1.0 && reward <= 1.0);
+        const float target = std::get<3>(transition) ?
+            reward + gamma_ * actions_and_values[target_value_idx++].second :
+            reward;
+        CHECK(!std::isnan(target));
+        filter_input[filter_blob->offset(i,n,action,0)] = 1;
+        target_input[target_blob->offset(i,n,action,0)] = target;
+        const auto& frame = std::get<0>(transition);
+        std::copy(frame->begin(), frame->end(),
+                  frame_input.begin() + frames_blob->offset(n,i,0,0));
+      }
+    }
+    CHECK_EQ(target_value_idx, actions_and_values.size());
+    InputDataIntoLayers(*net_, frame_input.data(), cont_input.data(),
+                        target_input.data(), filter_input.data());
+    solver_->Step(1);
+  }
+  return 1;
 }
 
 void DQN::CloneNet(caffe::Net<float>& net) {
   caffe::NetParameter net_param;
   net.ToProto(&net_param);
-  clone_net_.reset(new caffe::Net<float>(net_param));
+  net_param.mutable_state()->set_phase(net.phase());
+  if (!clone_net_) {
+    clone_net_.reset(new caffe::Net<float>(net_param));
+  } else {
+    clone_net_->CopyTrainedLayersFrom(net_param);
+  }
 }
 
 void DQN::InputDataIntoLayers(caffe::Net<float>& net,

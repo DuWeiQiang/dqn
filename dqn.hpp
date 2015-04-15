@@ -97,6 +97,8 @@ public:
 
   // Update DQN. Returns the number of solver steps executed.
   int Update();
+  // Updates from a random minibatch of experiences
+  int UpdateRandom();
 
   // Clear the replay memory
   void ClearReplayMemory() { replay_memory_.clear(); }
@@ -144,7 +146,7 @@ protected:
   SolverSp solver_;
   NetSp net_; // The primary network used for action selection.
   NetSp test_net_; // Net used for testing
-  NetSp clone_net_; // Clone of the test net. Used to generate targets.
+  NetSp clone_net_; // Clone used to generate targets.
   int last_clone_iter_; // Iteration in which the net was last cloned
   std::array<float, kFramesInputSize> dummy_input_;
   std::mt19937 random_engine;
