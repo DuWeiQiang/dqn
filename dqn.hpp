@@ -13,30 +13,34 @@
 
 namespace dqn {
 
-constexpr auto kUnroll               = 1;
+constexpr auto kUnroll               = 2;
 constexpr auto kRawFrameHeight       = 210;
 constexpr auto kRawFrameWidth        = 160;
 constexpr auto kCroppedFrameSize     = 84;
 constexpr auto kCroppedFrameDataSize = kCroppedFrameSize * kCroppedFrameSize;
+constexpr auto kInputFrameCount      = 1;
 constexpr auto kMinibatchSize        = 32;
-constexpr auto kMinibatchDataSize    = kCroppedFrameDataSize * kMinibatchSize;
 constexpr auto kOutputCount          = 18;
 
-// Size of the memory data inputs for the train net
-constexpr auto kFramesInputSize = kMinibatchSize * kUnroll * kCroppedFrameDataSize;
+// Size of the memory data inputs for the train net.
+constexpr auto kFramesInputSize = kMinibatchSize *
+    (kUnroll + kInputFrameCount - 1) * kCroppedFrameDataSize;
 constexpr auto kTargetInputSize = kUnroll * kMinibatchSize * kOutputCount;
 constexpr auto kFilterInputSize = kUnroll * kMinibatchSize * kOutputCount;
 constexpr auto kContInputSize = kUnroll * kMinibatchSize;
 
 // Size of the memory data inputs for the test net
-constexpr auto kTestFramesInputSize = kMinibatchSize * kCroppedFrameDataSize;
+constexpr auto kTestFramesInputSize = kMinibatchSize * kInputFrameCount *
+    kCroppedFrameDataSize;
 constexpr auto kTestTargetInputSize = kMinibatchSize * kOutputCount;
 constexpr auto kTestFilterInputSize = kMinibatchSize * kOutputCount;
 constexpr auto kTestContInputSize = kMinibatchSize;
 
 using FrameData    = std::array<uint8_t, kCroppedFrameDataSize>;
 using FrameDataSp  = std::shared_ptr<FrameData>;
-using Transition   = std::tuple<FrameDataSp, Action, float, boost::optional<FrameDataSp> >;
+using InputFrames  = std::array<FrameDataSp, kInputFrameCount>;
+using Transition   = std::tuple<FrameDataSp, Action, float,
+                                boost::optional<FrameDataSp> >;
 using Episode      = std::vector<Transition>;
 using ReplayMemory = std::deque<Episode>;
 using MemoryLayer  = caffe::MemoryDataLayer<float>;
@@ -50,8 +54,6 @@ using ContLayerInputData = std::array<float, kContInputSize>;
 using ActionValue = std::pair<Action, float>;
 using SolverSp = std::shared_ptr<caffe::Solver<float>>;
 using NetSp = boost::shared_ptr<caffe::Net<float>>;
-
-
 
 /**
  * Deep Q-Network
@@ -86,11 +88,11 @@ public:
 
   // Select an action by epsilon-greedy. If cont is false, LSTM state
   // will be reset. cont should be true only at start of new episodes.
-  Action SelectAction(const FrameDataSp& frame, double epsilon, bool cont);
+  Action SelectAction(const InputFrames& frames, double epsilon, bool cont);
 
   // Select a batch of actions by epsilon-greedy.
-  ActionVect SelectActions(const FrameVec& frames_batch, double epsilon,
-                           bool cont);
+  ActionVect SelectActions(const std::vector<InputFrames>& frames_batch,
+                           double epsilon, bool cont);
 
   // Add an episode to the replay memory
   void RememberEpisode(const Episode& episode);
@@ -119,13 +121,12 @@ protected:
   // Given a set of input frames and a network, select an
   // action. Returns the action and the estimated Q-Value.
   ActionValue SelectActionGreedily(caffe::Net<float>& net,
-                                   const FrameDataSp& frame,
+                                   const InputFrames& frames,
                                    bool cont);
 
   // Given a vector of frames, return a batch of selected actions + values.
-  std::vector<ActionValue> SelectActionGreedily(caffe::Net<float>& net,
-                                                const FrameVec& frames,
-                                                bool cont);
+  std::vector<ActionValue> SelectActionGreedily(
+      caffe::Net<float>& net, const std::vector<InputFrames>& frames, bool cont);
 
   // Input data into the Frames/Target/Filter layers of the given
   // net. This must be done before forward is called.

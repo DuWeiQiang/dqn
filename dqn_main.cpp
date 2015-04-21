@@ -73,145 +73,13 @@ void InitializeALE(ALEInterface& ale, bool display_screen, std::string& rom) {
   ale.loadROM(rom);
 }
 
-std::mutex mtx;
-ActionVect act_to_take;
-dqn::FrameVec frames_batch;
-std::vector<float> rewards;
-std::vector<bool> thread_ready;
-std::vector<bool> thread_done;
-std::vector<bool> action_ready;
-std::vector<double> thread_scores;
-
-/**
- * Main method used by threads. Plays a single game.
- */
-void ThreadEvaluate(int id) {
-  mtx.lock();
-  ALEInterface ale;
-  InitializeALE(ale, false, FLAGS_rom);
-  mtx.unlock();
-  auto total_score = 0;
-  auto reward = 0;
-  while (!ale.game_over()) {
-    const ALEScreen& screen = ale.getScreen();
-    const auto current_frame = dqn::PreprocessScreen(screen);
-    assert(frames_batch.size() >= id);
-    mtx.lock();
-    frames_batch[id] = current_frame;
-    thread_ready[id] = true;
-    rewards[id] = reward;
-    mtx.unlock();
-    while (!action_ready[id]) {
-      std::this_thread::yield();
-    }
-    auto immediate_score = 0.0;
-    for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
-      immediate_score += ale.act(act_to_take[id]);
-    }
-    total_score += immediate_score;
-    reward = immediate_score == 0 ? 0 : immediate_score /
-        std::abs(immediate_score);
-    assert(reward <= 1 && reward >= -1);
-    action_ready[id] = false;
-  }
-  LOG(INFO) << "Thread " << id << " Score " << total_score;
-  mtx.lock();
-  thread_done[id] = true;
-  thread_ready[id] = true;
-  thread_scores[id] = total_score;
-  mtx.unlock();
-}
-
-/**
- * Plays kMinibatchSize episodes in parallel using threads. Returns a
- * vector of scores for each thread.
- */
-std::vector<double> PlayParallelEpisodes(dqn::DQN& dqn, double epsilon,
-                                         bool update) {
-  assert(FLAGS_repeat_games <= dqn::kMinibatchSize);
-  int num_threads = FLAGS_repeat_games;
-  frames_batch.resize(num_threads);
-  rewards.resize(num_threads);
-  act_to_take.resize(num_threads);
-  thread_ready.resize(num_threads);
-  thread_done.resize(num_threads);
-  action_ready.resize(num_threads);
-  thread_scores.resize(num_threads);
-
-  std::fill(act_to_take.begin(), act_to_take.end(), PLAYER_A_NOOP);
-  std::fill(thread_ready.begin(), thread_ready.end(), false);
-  std::fill(thread_done.begin(), thread_done.end(), false);
-  std::fill(action_ready.begin(), action_ready.end(), false);
-  std::fill(thread_scores.begin(), thread_scores.end(), 0.0);
-
-  std::thread threads[num_threads];
-  std::vector<dqn::Transition> games_in_progress[num_threads];
-  // dqn::FrameVec past_frames_batch;
-  for (int i=0; i<num_threads; ++i) {
-    threads[i] = std::thread(ThreadEvaluate, i);
-  }
-  bool episode_start = true;
-  while (std::any_of(thread_done.begin(), thread_done.end(),
-                     [](bool done){return !done;})) {
-    if (std::all_of(thread_ready.begin(), thread_ready.end(),
-                    [](bool ready){return ready;})) {
-      // if (update) {
-      //   if (past_frames_batch.empty()) {
-      //     past_frames_batch.resize(num_threads);
-      //   } else {
-      //     for (int i=0; i<num_threads; ++i) {
-      //       if (!thread_done[i]) {
-      //         const dqn::FrameDataSp& next_frame = frames_batch[i];
-      //         const auto transition = dqn::Transition(
-      //             past_frames_batch[i], act_to_take[i], rewards[i], next_frame);
-      //         dqn.AddTransition(transition);
-      //         if (dqn.memory_size() > FLAGS_memory_threshold) {
-      //           dqn.Update();
-      //         }
-      //       }
-      //     }
-      //   }
-      // }
-      ActionVect av = dqn.SelectActions(frames_batch, epsilon, episode_start);
-      episode_start = false;
-      assert(av.size() == num_threads);
-      for (int i=0; i<num_threads; ++i) {
-        act_to_take[i] = av[i];
-        if (!thread_done[i]) {
-          thread_ready[i] = false;
-        }
-      }
-      // if (update) {
-      //   // Swap the past frames with the current frames
-      //   past_frames_batch.swap(frames_batch);
-      // }
-      std::fill(action_ready.begin(), action_ready.end(), true);
-    } else {
-      std::this_thread::yield();
-    }
-  }
-  for (auto& th: threads) {
-    th.join();
-  }
-  // if (update) {
-  //   for (int i=0; i<num_threads; ++i) {
-  //     const auto transition = dqn::Transition(
-  //         frames_batch[i], act_to_take[i], rewards[i], boost::none);
-  //     dqn.AddTransition(transition);
-  //     if (dqn.memory_size() > FLAGS_memory_threshold) {
-  //       dqn.Update();
-  //     }
-  //   }
-  // }
-  return thread_scores;
-}
-
 /**
  * Play one episode and return the total score
  */
 double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
                       const bool update) {
   CHECK(!ale.game_over());
+  std::deque<dqn::FrameDataSp> past_frames;
   dqn::Episode episode;
   auto total_score = 0.0;
   for (auto frame = 0; !ale.game_over(); ++frame) {
@@ -223,13 +91,27 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
       SaveScreen(screen, ale, ss.str());
     }
     const dqn::FrameDataSp current_frame = dqn::PreprocessScreen(screen);
+    past_frames.push_back(current_frame);
     if (!FLAGS_save_binary_screen.empty()) {
       static int binary_save_num = 0;
       string fname = FLAGS_save_binary_screen +
           std::to_string(binary_save_num++) + ".bin";
       SaveInputFrame(*current_frame, fname);
     }
-    const auto action = dqn.SelectAction(current_frame, epsilon, frame > 0);
+    if (past_frames.size() < dqn::kInputFrameCount) {
+      // If there are not past frames enough for DQN input, just select NOOP
+      for (int i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
+        total_score += ale.act(PLAYER_A_NOOP);
+      }
+      continue;
+    }
+    while (past_frames.size() > dqn::kInputFrameCount) {
+      past_frames.pop_front();
+    }
+    CHECK_EQ(past_frames.size(), dqn::kInputFrameCount);
+    dqn::InputFrames input_frames;
+    std::copy(past_frames.begin(), past_frames.end(), input_frames.begin());
+    const auto action = dqn.SelectAction(input_frames, epsilon, frame > 0);
     auto immediate_score = 0.0;
     for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
       immediate_score += ale.act(action);
@@ -247,9 +129,9 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
           dqn::Transition(current_frame, action, reward,
                           dqn::PreprocessScreen(ale.getScreen()));
       episode.push_back(transition);
-      // if (dqn.memory_size() > FLAGS_memory_threshold) {
-      //   dqn.UpdateRandom();
-      // }
+      if (dqn.memory_size() > FLAGS_memory_threshold) {
+        dqn.UpdateRandom();
+      }
     }
   }
   if (update) {
@@ -415,10 +297,10 @@ int main(int argc, char** argv) {
     episode++;
 
     // If the size of replay memory is large enough, update DQN
-    if (dqn.memory_size() >= FLAGS_memory_threshold) {
-      dqn.Update();
-      LOG(INFO) << "Finished Update iter = " << dqn.current_iteration();
-    }
+    // if (dqn.memory_size() >= FLAGS_memory_threshold) {
+    //   dqn.Update();
+    //   LOG(INFO) << "Finished Update iter = " << dqn.current_iteration();
+    // }
 
     if (dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
       double avg_score = Evaluate(ale, dqn);
