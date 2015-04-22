@@ -158,12 +158,15 @@ void PrintQValues(const std::vector<float>& q_values, const ActionVect& actions)
 }
 
 template <typename Dtype>
-bool HasBlobSize(const caffe::Blob<Dtype>& blob, const int num,
-                 const int channels, const int height, const int width) {
-  return blob.num() == num &&
-      blob.channels() == channels &&
-      blob.height() == height &&
-      blob.width() == width;
+void HasBlobSize(caffe::Net<Dtype>& net,
+                 const std::string& blob_name,
+                 const std::vector<int> expected_shape) {
+  net.has_blob(blob_name);
+  const caffe::Blob<Dtype>& blob = *net.blob_by_name(blob_name);
+  const std::vector<int>& blob_shape = blob.shape();
+  CHECK_EQ(blob_shape.size(), expected_shape.size());
+  CHECK(std::equal(blob_shape.begin(), blob_shape.end(),
+                   expected_shape.begin()));
 }
 
 void DQN::LoadTrainedModel(const std::string& model_bin) {
@@ -186,29 +189,17 @@ void DQN::Initialize() {
   CloneNet(*test_net_);
   std::fill(dummy_input_.begin(), dummy_input_.end(), 0.0);
   // Check the primary network
-  CHECK(HasBlobSize(*net_->blob_by_name("frames"),
-                    kMinibatchSize,
-                    kUnroll + (kInputFrameCount-1),
-                    kCroppedFrameSize,
-                    kCroppedFrameSize));
-  CHECK(HasBlobSize(*net_->blob_by_name("target"),
-                    kUnroll, kMinibatchSize, kOutputCount, 1));
-  CHECK(HasBlobSize(*net_->blob_by_name("filter"),
-                    kUnroll, kMinibatchSize, kOutputCount, 1));
-  CHECK(HasBlobSize(*net_->blob_by_name("cont_input"),
-                    kUnroll, kMinibatchSize, 1, 1));
+  HasBlobSize(*net_, "frames", {kMinibatchSize, kUnroll + (kInputFrameCount-1),
+          kCroppedFrameSize, kCroppedFrameSize});
+  HasBlobSize(*net_, "target", {kUnroll, kMinibatchSize, kOutputCount, 1});
+  HasBlobSize(*net_, "filter", {kUnroll, kMinibatchSize, kOutputCount, 1});
+  HasBlobSize(*net_, "cont_input", {kUnroll, kMinibatchSize, 1, 1});
   // Check the test network
-  CHECK(HasBlobSize(*test_net_->blob_by_name("frame_0"),
-                    kMinibatchSize,
-                    kInputFrameCount,
-                    kCroppedFrameSize,
-                    kCroppedFrameSize));
-  CHECK(HasBlobSize(*test_net_->blob_by_name("target"),
-                    1, kMinibatchSize, kOutputCount, 1));
-  CHECK(HasBlobSize(*test_net_->blob_by_name("filter"),
-                    1, kMinibatchSize, kOutputCount, 1));
-  CHECK(HasBlobSize(*test_net_->blob_by_name("cont_input"),
-                    1, kMinibatchSize, 1, 1));
+  HasBlobSize(*test_net_, "frame_0", {kMinibatchSize, kInputFrameCount,
+          kCroppedFrameSize, kCroppedFrameSize});
+  HasBlobSize(*test_net_, "target", {1, kMinibatchSize, kOutputCount, 1});
+  HasBlobSize(*test_net_, "filter", {1, kMinibatchSize, kOutputCount, 1});
+  HasBlobSize(*test_net_, "cont_input", {1, kMinibatchSize, 1, 1});
   LOG(INFO) << "Finished " << net_->name() << " Initialization";
 }
 

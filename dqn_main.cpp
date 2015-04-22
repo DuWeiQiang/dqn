@@ -129,9 +129,9 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
           dqn::Transition(current_frame, action, reward,
                           dqn::PreprocessScreen(ale.getScreen()));
       episode.push_back(transition);
-      if (dqn.memory_size() > FLAGS_memory_threshold) {
-        dqn.UpdateRandom();
-      }
+      // if (dqn.memory_size() > FLAGS_memory_threshold) {
+      //   dqn.UpdateRandom();
+      // }
     }
   }
   if (update) {
@@ -297,10 +297,10 @@ int main(int argc, char** argv) {
     episode++;
 
     // If the size of replay memory is large enough, update DQN
-    // if (dqn.memory_size() >= FLAGS_memory_threshold) {
-    //   dqn.Update();
-    //   LOG(INFO) << "Finished Update iter = " << dqn.current_iteration();
-    // }
+    if (dqn.memory_size() >= FLAGS_memory_threshold) {
+      dqn.Update();
+      LOG(INFO) << "Finished Update iter = " << dqn.current_iteration();
+    }
 
     if (dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
       double avg_score = Evaluate(ale, dqn);

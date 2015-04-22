@@ -18,7 +18,7 @@ constexpr auto kRawFrameHeight       = 210;
 constexpr auto kRawFrameWidth        = 160;
 constexpr auto kCroppedFrameSize     = 84;
 constexpr auto kCroppedFrameDataSize = kCroppedFrameSize * kCroppedFrameSize;
-constexpr auto kInputFrameCount      = 1;
+constexpr auto kInputFrameCount      = 2;
 constexpr auto kMinibatchSize        = 32;
 constexpr auto kOutputCount          = 18;
 

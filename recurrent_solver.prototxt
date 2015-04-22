@@ -1,5 +1,5 @@
-# net: "drqn_unroll2_frame2.prototxt"
-net: "drqn.prototxt"
+net: "drqn_unroll2_frame2.prototxt"
+# net: "drqn.prototxt"
 solver_type: ADADELTA
 momentum: 0.95
 base_lr: 1
