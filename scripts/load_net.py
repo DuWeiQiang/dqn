@@ -366,8 +366,8 @@ def test():
   vis_square(opt, title='Optimized inputs', fname='opt10.png')
 
 seed(123)
-prototxt = 'dqn.prototxt'
-snapshot = 'state/dqn_pong_iter_1500000.caffemodel'
+prototxt = 'gen_net.prototxt'
+snapshot = 'state/gen_net_u2f2_pong_iter_2000000.caffemodel'
 snapshot_prefix = snapshot.split('_iter_')[0]
 phase = caffe.TEST
 net = caffe.Net(prototxt, snapshot, phase)

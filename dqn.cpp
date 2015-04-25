@@ -101,8 +101,6 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
       const auto last_x = start_x + static_cast<int>(std::floor((j + 1) * x_ratio));
       const auto first_y = start_y + static_cast<int>(std::floor(i * y_ratio));
       const auto last_y = start_y + static_cast<int>(std::floor((i + 1) * y_ratio));
-      auto x_sum = 0.0;
-      auto y_sum = 0.0;
       uint8_t resulting_color = 0.0;
       for (auto x = first_x; x <= last_x; ++x) {
         double x_ratio_in_resulting_pixel = 1.0;
@@ -169,6 +167,291 @@ void HasBlobSize(caffe::Net<Dtype>& net,
                    expected_shape.begin()));
 }
 
+void PopulateLayer(caffe::LayerParameter& layer,
+                   const std::string& name, const std::string& type,
+                   const std::vector<std::string>& bottoms,
+                   const std::vector<std::string>& tops,
+                   const boost::optional<caffe::Phase>& include_phase) {
+  layer.set_name(name);
+  layer.set_type(type);
+  for (auto& bottom : bottoms) {
+    layer.add_bottom(bottom);
+  }
+  for (auto& top : tops) {
+    layer.add_top(top);
+  }
+  // PopulateLayer(layer, name, type, bottoms, tops);
+  if (include_phase) {
+    layer.add_include()->set_phase(*include_phase);
+  }
+}
+
+void MemoryDataLayer(caffe::NetParameter& net_param,
+                     const std::string& name,
+                     const std::vector<std::string>& tops,
+                     const boost::optional<caffe::Phase>& include_phase,
+                     const std::vector<int>& shape) {
+  caffe::LayerParameter& memory_layer = *net_param.add_layer();
+  PopulateLayer(memory_layer, name, "MemoryData", {}, tops, include_phase);
+  CHECK_EQ(shape.size(), 4);
+  caffe::MemoryDataParameter* memory_data_param =
+      memory_layer.mutable_memory_data_param();
+  memory_data_param->set_batch_size(shape[0]);
+  memory_data_param->set_channels(shape[1]);
+  memory_data_param->set_height(shape[2]);
+  memory_data_param->set_width(shape[3]);
+}
+
+void ReshapeLayer(caffe::NetParameter& net_param,
+                  const std::string& name,
+                  const std::vector<std::string>& bottoms,
+                  const std::vector<std::string>& tops,
+                  const boost::optional<caffe::Phase>& include_phase,
+                  const std::vector<int>& shape) {
+  caffe::LayerParameter& reshape_layer = *net_param.add_layer();
+  PopulateLayer(reshape_layer, name, "Reshape", bottoms, tops, include_phase);
+  caffe::ReshapeParameter* reshape_param = reshape_layer.mutable_reshape_param();
+  caffe::BlobShape* blob_shape = reshape_param->mutable_shape();
+  for (auto& dim : shape) {
+    blob_shape->add_dim(dim);
+  }
+}
+
+void SliceLayer(caffe::NetParameter& net_param,
+                const std::string& name,
+                const std::vector<std::string>& bottoms,
+                const std::vector<std::string>& tops,
+                const boost::optional<caffe::Phase>& include_phase,
+                const int axis,
+                const std::vector<int>& slice_points) {
+  caffe::LayerParameter& layer = *net_param.add_layer();
+  PopulateLayer(layer, name, "Slice", bottoms, tops, include_phase);
+  caffe::SliceParameter* slice_param = layer.mutable_slice_param();
+  slice_param->set_axis(axis);
+  for (auto& p : slice_points) {
+    slice_param->add_slice_point(p);
+  }
+}
+
+void ConvLayer(caffe::NetParameter& net_param,
+               const std::string& name,
+               const std::vector<std::string>& bottoms,
+               const std::vector<std::string>& tops,
+               const std::string& shared_name,
+               const boost::optional<caffe::Phase>& include_phase,
+               const int num_output,
+               const int kernel_size,
+               const int stride) {
+  caffe::LayerParameter& layer = *net_param.add_layer();
+  PopulateLayer(layer, name, "Convolution", bottoms, tops, include_phase);
+  caffe::ParamSpec* weight_param = layer.add_param();
+  weight_param->set_name(shared_name + "_w");
+  weight_param->set_decay_mult(1);
+  caffe::ParamSpec* bias_param = layer.add_param();
+  bias_param->set_name(shared_name + "_b");
+  bias_param->set_decay_mult(0);
+  caffe::ConvolutionParameter* conv_param = layer.mutable_convolution_param();
+  conv_param->set_num_output(num_output);
+  conv_param->set_kernel_size(kernel_size);
+  conv_param->set_stride(stride);
+  caffe::FillerParameter* weight_filler = conv_param->mutable_weight_filler();
+  weight_filler->set_type("gaussian");
+  weight_filler->set_std(0.01);
+  caffe::FillerParameter* bias_filler = conv_param->mutable_bias_filler();
+  bias_filler->set_type("constant");
+  bias_filler->set_value(0);
+}
+
+void ReluLayer(caffe::NetParameter& net_param,
+               const std::string& name,
+               const std::vector<std::string>& bottoms,
+               const std::vector<std::string>& tops,
+               const boost::optional<caffe::Phase>& include_phase) {
+  caffe::LayerParameter& layer = *net_param.add_layer();
+  PopulateLayer(layer, name, "ReLU", bottoms, tops, include_phase);
+  caffe::ReLUParameter* relu_param = layer.mutable_relu_param();
+  relu_param->set_negative_slope(0.01);
+}
+
+void IPLayer(caffe::NetParameter& net_param,
+             const std::string& name,
+             const std::vector<std::string>& bottoms,
+             const std::vector<std::string>& tops,
+             const std::string& shared_name,
+             const boost::optional<caffe::Phase>& include_phase,
+             const int num_output,
+             const int axis) {
+  caffe::LayerParameter& layer = *net_param.add_layer();
+  PopulateLayer(layer, name, "InnerProduct", bottoms, tops, include_phase);
+  caffe::ParamSpec* weight_param = layer.add_param();
+  weight_param->set_name(shared_name + "_w");
+  weight_param->set_decay_mult(1);
+  caffe::ParamSpec* bias_param = layer.add_param();
+  bias_param->set_name(shared_name + "_b");
+  bias_param->set_decay_mult(0);
+  caffe::InnerProductParameter* ip_param = layer.mutable_inner_product_param();
+  ip_param->set_num_output(num_output);
+  ip_param->set_axis(axis);
+  caffe::FillerParameter* weight_filler = ip_param->mutable_weight_filler();
+  weight_filler->set_type("gaussian");
+  weight_filler->set_std(0.005);
+  caffe::FillerParameter* bias_filler = ip_param->mutable_bias_filler();
+  bias_filler->set_type("constant");
+  bias_filler->set_value(1);
+}
+
+void ConcatLayer(caffe::NetParameter& net_param,
+                 const std::string& name,
+                 const std::vector<std::string>& bottoms,
+                 const std::vector<std::string>& tops,
+                 const boost::optional<caffe::Phase>& include_phase,
+                 const int& axis) {
+  caffe::LayerParameter& layer = *net_param.add_layer();
+  PopulateLayer(layer, name, "Concat", bottoms, tops, include_phase);
+  caffe::ConcatParameter* concat_param = layer.mutable_concat_param();
+  concat_param->set_axis(axis);
+}
+
+void LstmLayer(caffe::NetParameter& net_param,
+               const std::string& name,
+               const std::vector<std::string>& bottoms,
+               const std::vector<std::string>& tops,
+               const boost::optional<caffe::Phase>& include_phase,
+               const int& num_output) {
+  caffe::LayerParameter& layer = *net_param.add_layer();
+  PopulateLayer(layer, name, "LSTM", bottoms, tops, include_phase);
+  caffe::RecurrentParameter* recurrent_param = layer.mutable_recurrent_param();
+  recurrent_param->set_num_output(num_output);
+  caffe::FillerParameter* weight_filler = recurrent_param->mutable_weight_filler();
+  weight_filler->set_type("uniform");
+  weight_filler->set_min(-0.08);
+  weight_filler->set_max(0.08);
+  caffe::FillerParameter* bias_filler = recurrent_param->mutable_bias_filler();
+  bias_filler->set_type("constant");
+  bias_filler->set_value(0);
+}
+
+void EltwiseLayer(caffe::NetParameter& net_param,
+                  const std::string& name,
+                  const std::vector<std::string>& bottoms,
+                  const std::vector<std::string>& tops,
+                  const boost::optional<caffe::Phase>& include_phase,
+                  const caffe::EltwiseParameter::EltwiseOp& op) {
+  caffe::LayerParameter& layer = *net_param.add_layer();
+  PopulateLayer(layer, name, "Eltwise", bottoms, tops, include_phase);
+  caffe::EltwiseParameter* eltwise_param = layer.mutable_eltwise_param();
+  eltwise_param->set_operation(op);
+}
+
+void SilenceLayer(caffe::NetParameter& net_param,
+                  const std::string& name,
+                  const std::vector<std::string>& bottoms,
+                  const std::vector<std::string>& tops,
+                  const boost::optional<caffe::Phase>& include_phase) {
+  caffe::LayerParameter& layer = *net_param.add_layer();
+  PopulateLayer(layer, name, "Silence", bottoms, tops, include_phase);
+}
+
+void EuclideanLossLayer(caffe::NetParameter& net_param,
+                        const std::string& name,
+                        const std::vector<std::string>& bottoms,
+                        const std::vector<std::string>& tops,
+                        const boost::optional<caffe::Phase>& include_phase) {
+  caffe::LayerParameter& layer = *net_param.add_layer();
+  PopulateLayer(layer, name, "EuclideanLoss", bottoms, tops, include_phase);
+}
+
+caffe::NetParameter CreateNet() {
+  caffe::NetParameter np;
+  np.set_name("Deep Recurrent Q-Network");
+  MemoryDataLayer(
+      np, frames_layer_name, {train_frames_blob_name,"dummy_frames"}, caffe::TRAIN,
+      {kMinibatchSize, kMemoryInputFrames, kCroppedFrameSize, kCroppedFrameSize});
+  MemoryDataLayer(
+      np, cont_layer_name, {cont_blob_name,"dummy_cont"}, caffe::TRAIN,
+      {kUnroll, kMinibatchSize, 1, 1});
+  MemoryDataLayer(
+      np, target_layer_name, {target_blob_name,"dummy_target"}, caffe::TRAIN,
+      {kUnroll, kMinibatchSize, kOutputCount, 1});
+  MemoryDataLayer(
+      np, filter_layer_name, {filter_blob_name,"dummy_filter"}, caffe::TRAIN,
+      {kUnroll, kMinibatchSize, kOutputCount, 1});
+  ReshapeLayer(
+      np, "reshape_cont", {cont_blob_name}, {"reshaped_cont"}, caffe::TRAIN,
+      {kUnroll, kMinibatchSize});
+  ReshapeLayer(
+      np, "reshape_filter", {filter_blob_name}, {"reshaped_filter"}, caffe::TRAIN,
+      {kUnroll, kMinibatchSize, kOutputCount});
+  MemoryDataLayer(
+      np, frames_layer_name, {test_frames_blob_name,"dummy_frames"},
+      caffe::TEST,
+      {kMinibatchSize,kInputFramesPerTimestep,kCroppedFrameSize,kCroppedFrameSize});
+  MemoryDataLayer(
+      np, cont_layer_name, {cont_blob_name,"dummy_cont"}, caffe::TEST,
+      {1, kMinibatchSize, 1, 1});
+  MemoryDataLayer(
+      np, target_layer_name, {target_blob_name,"dummy_target"}, caffe::TEST,
+      {1, kMinibatchSize, kOutputCount, 1});
+  MemoryDataLayer(
+      np, filter_layer_name, {filter_blob_name,"dummy_filter"}, caffe::TEST,
+      {1, kMinibatchSize, kOutputCount, 1});
+  ReshapeLayer(
+      np, "reshape_cont", {cont_blob_name}, {"reshaped_cont"}, caffe::TEST,
+      {1, kMinibatchSize});
+  ReshapeLayer(
+      np, "reshape_filter", {filter_blob_name}, {"reshaped_filter"}, caffe::TEST,
+      {1, kMinibatchSize, kOutputCount});
+  SilenceLayer(np, "silence", {"dummy_frames","dummy_cont","dummy_filter",
+          "dummy_target"}, {}, boost::none);
+  std::vector<std::string> ip1_tops, scrap_tops;
+  for (int t = 0; t < kUnroll; ++t) {
+    std::string ts = std::to_string(t);
+    boost::optional<caffe::Phase> phase;
+    if (t > 0) { phase.reset(caffe::TRAIN); }
+    std::vector<int> slice_points;
+    std::vector<std::string> slice_tops;
+    if (t == 0) {
+      slice_points = {kInputFramesPerTimestep};
+      slice_tops = {"frames_"+ts, "scrap_"+ts};
+      scrap_tops.push_back("scrap_"+ts);
+    } else if (t == kUnroll - 1) {
+      slice_points = {t};
+      slice_tops = {"scrap_"+ts, "frames_"+ts};
+      scrap_tops.push_back("scrap_"+ts);
+    } else {
+      slice_tops = {"scrap1_"+ts, "frames_"+ts, "scrap2_"+ts};
+      scrap_tops.push_back("scrap1_"+ts);
+      scrap_tops.push_back("scrap2_"+ts);
+      slice_points = {t, t + kInputFramesPerTimestep};
+    }
+    SliceLayer(np, "slice_"+ts, {train_frames_blob_name}, slice_tops,
+               caffe::TRAIN, 1, slice_points);
+    ConvLayer(np, "conv1_"+ts, {"frames_"+ts}, {"conv1_"+ts}, "conv1", phase,
+              16, 8, 4);
+    ReluLayer(np, "conv1_relu_"+ts, {"conv1_"+ts}, {"conv1_"+ts}, phase);
+    ConvLayer(np, "conv2_"+ts, {"conv1_"+ts}, {"conv2_"+ts}, "conv2", phase,
+              32, 4, 2);
+    ReluLayer(np, "conv2_relu_"+ts, {"conv2_"+ts}, {"conv2_"+ts}, phase);
+    IPLayer(np, "ip1_"+ts, {"conv2_"+ts}, {"ip1_"+ts}, "ip1", phase, ip1Size,1);
+    ReluLayer(np, "ip1_relu_"+ts, {"ip1_"+ts}, {"ip1_"+ts}, phase);
+    ReshapeLayer(np, "ip1_reshape_"+ts, {"ip1_"+ts}, {"reshaped_ip1_"+ts},
+                 caffe::TRAIN, {1, kMinibatchSize, ip1Size});
+    ip1_tops.push_back("reshaped_ip1_"+ts);
+  }
+  SilenceLayer(np, "scrap_silence", scrap_tops, {}, caffe::TRAIN);
+  ReshapeLayer(np, "ip1_reshape_0", {"ip1_0"}, {"concat_ip1"}, caffe::TEST,
+               {1, kMinibatchSize, ip1Size});
+  ConcatLayer(np, "concat_ip1", ip1_tops, {"concat_ip1"}, caffe::TRAIN, 0);
+  LstmLayer(np,"lstm1",{"concat_ip1","reshaped_cont"},{"lstm1"},boost::none,lstmSize);
+  IPLayer(np,"ip2",{"lstm1"},{q_values_blob_name},"ip2",boost::none,kOutputCount,2);
+  EltwiseLayer(np, "eltwise_filter", {q_values_blob_name,"reshaped_filter"},
+               {"filtered_q_values"}, boost::none, caffe::EltwiseParameter::PROD);
+  EuclideanLossLayer(np, "loss", {"filtered_q_values","target"}, {"loss"}, boost::none);
+  // WriteProtoToTextFile(np, "gen_net.prototxt");
+  // exit(0);
+  return np;
+}
+
 void DQN::LoadTrainedModel(const std::string& model_bin) {
   net_->CopyTrainedLayersFrom(model_bin);
 }
@@ -187,19 +470,18 @@ void DQN::Initialize() {
   test_net_->ShareTrainedLayersWith(net_.get());
   // Clone net maintains its own set of parameters
   CloneNet(*test_net_);
-  std::fill(dummy_input_.begin(), dummy_input_.end(), 0.0);
   // Check the primary network
-  HasBlobSize(*net_, "frames", {kMinibatchSize, kUnroll + (kInputFrameCount-1),
-          kCroppedFrameSize, kCroppedFrameSize});
-  HasBlobSize(*net_, "target", {kUnroll, kMinibatchSize, kOutputCount, 1});
-  HasBlobSize(*net_, "filter", {kUnroll, kMinibatchSize, kOutputCount, 1});
-  HasBlobSize(*net_, "cont_input", {kUnroll, kMinibatchSize, 1, 1});
+  HasBlobSize(*net_, train_frames_blob_name, {kMinibatchSize,
+          kMemoryInputFrames, kCroppedFrameSize, kCroppedFrameSize});
+  HasBlobSize(*net_, target_blob_name, {kUnroll, kMinibatchSize, kOutputCount, 1});
+  HasBlobSize(*net_, filter_blob_name, {kUnroll, kMinibatchSize, kOutputCount, 1});
+  HasBlobSize(*net_, cont_blob_name, {kUnroll, kMinibatchSize, 1, 1});
   // Check the test network
-  HasBlobSize(*test_net_, "frame_0", {kMinibatchSize, kInputFrameCount,
-          kCroppedFrameSize, kCroppedFrameSize});
-  HasBlobSize(*test_net_, "target", {1, kMinibatchSize, kOutputCount, 1});
-  HasBlobSize(*test_net_, "filter", {1, kMinibatchSize, kOutputCount, 1});
-  HasBlobSize(*test_net_, "cont_input", {1, kMinibatchSize, 1, 1});
+  HasBlobSize(*test_net_, test_frames_blob_name, {kMinibatchSize,
+          kInputFramesPerTimestep, kCroppedFrameSize, kCroppedFrameSize});
+  HasBlobSize(*test_net_, target_blob_name, {1, kMinibatchSize, kOutputCount, 1});
+  HasBlobSize(*test_net_, filter_blob_name, {1, kMinibatchSize, kOutputCount, 1});
+  HasBlobSize(*test_net_, cont_blob_name, {1, kMinibatchSize, 1, 1});
   LOG(INFO) << "Finished " << net_->name() << " Initialization";
 }
 
@@ -248,29 +530,33 @@ DQN::SelectActionGreedily(caffe::Net<float>& net,
     return results;
   }
   CHECK_EQ(net.phase(), caffe::TEST);
-  CHECK(net.has_blob("frame_0"));
-  const auto frames_blob = net.blob_by_name("frame_0");
+  CHECK(net.has_blob(test_frames_blob_name));
+  const auto frames_blob = net.blob_by_name(test_frames_blob_name);
   CHECK_LE(frames_batch.size(), kMinibatchSize);
   std::array<float, kTestFramesInputSize> frames_input;
   frames_input.fill(0.0);
   std::array<float, kTestContInputSize> cont_input;
   cont_input.fill(cont);
+  FilterLayerInputData filter_input;
+  filter_input.fill(0.0);
+  TargetLayerInputData target_input;
+  target_input.fill(0.0);
   // Input frames to the net and compute Q values for each legal action
   for (int n = 0; n < frames_batch.size(); ++n) {
     const InputFrames& input_frames = frames_batch[n];
-    for (int i = 0; i < kInputFrameCount; ++i) {
+    for (int i = 0; i < kInputFramesPerTimestep; ++i) {
       const FrameDataSp& frame_data = input_frames[i];
       std::copy(frame_data->begin(), frame_data->end(),
                 frames_input.begin() + frames_blob->offset(n,i,0,0));
     }
   }
   InputDataIntoLayers(net, frames_input.data(), cont_input.data(),
-                      dummy_input_.data(), dummy_input_.data());
+                      target_input.data(), filter_input.data());
   net.ForwardPrefilled(nullptr);
   // Collect the Results
   results.reserve(frames_batch.size());
-  const auto q_values_blob = net.blob_by_name("q_values");
-  CHECK(q_values_blob);
+  CHECK(net.has_blob(q_values_blob_name));
+  const auto q_values_blob = net.blob_by_name(q_values_blob_name);
   for (int i = 0; i < frames_batch.size(); ++i) {
     // Get the Q-values from the net: kUnroll*kMinibatchSize*kOutputCount
     const auto action_evaluator = [&](Action action) {
@@ -308,10 +594,10 @@ int DQN::Update() {
     last_clone_iter_ = current_iteration();
   }
 
-  const auto frames_blob = net_->blob_by_name("frames");
-  const auto cont_blob = net_->blob_by_name("cont_input");
-  const auto filter_blob = net_->blob_by_name("filter");
-  const auto target_blob = net_->blob_by_name("target");
+  const auto frames_blob = net_->blob_by_name(train_frames_blob_name);
+  const auto cont_blob = net_->blob_by_name(cont_blob_name);
+  const auto filter_blob = net_->blob_by_name(filter_blob_name);
+  const auto target_blob = net_->blob_by_name(target_blob_name);
 
   // Randomly select unique episodes to learn from
   std::vector<int> ep_inds(replay_memory_.size());
@@ -352,14 +638,14 @@ int DQN::Update() {
           active_episodes++;
           // next_frames.emplace_back(std::get<3>(episode[t]).get());
           frame_deque.push_back(std::get<3>(episode[t]).get());
-          while (frame_deque.size() > kInputFrameCount) {
+          while (frame_deque.size() > kInputFramesPerTimestep) {
             frame_deque.pop_front();
           }
         } else {
           frame_deque.clear();
         }
       }
-      if (t < kInputFrameCount) {
+      if (t < kInputFramesPerTimestep) {
         continue;
       }
       // Get the next state QValues
@@ -367,7 +653,7 @@ int DQN::Update() {
       for (int n = 0; n < ep_inds.size(); ++n) {
         const auto& frame_deque = past_frames[n];
         if (!frame_deque.empty()) {
-          CHECK_EQ(frame_deque.size(), kInputFrameCount);
+          CHECK_EQ(frame_deque.size(), kInputFramesPerTimestep);
           InputFrames input_frames;
           std::copy(frame_deque.begin(), frame_deque.end(),
                     input_frames.begin());
@@ -441,10 +727,10 @@ int DQN::UpdateRandom() {
     CloneNet(*test_net_);
     last_clone_iter_ = current_iteration();
   }
-  const auto frames_blob = net_->blob_by_name("frames");
-  const auto cont_blob = net_->blob_by_name("cont_input");
-  const auto filter_blob = net_->blob_by_name("filter");
-  const auto target_blob = net_->blob_by_name("target");
+  const auto frames_blob = net_->blob_by_name(train_frames_blob_name);
+  const auto cont_blob = net_->blob_by_name(cont_blob_name);
+  const auto filter_blob = net_->blob_by_name(filter_blob_name);
+  const auto target_blob = net_->blob_by_name(target_blob_name);
   FramesLayerInputData frame_input;
   TargetLayerInputData target_input;
   FilterLayerInputData filter_input;
@@ -468,7 +754,7 @@ int DQN::UpdateRandom() {
   std::vector<int> ep_starts(batch_size);
   for (int n = 0; n < batch_size; ++n) {
     int ep_size = replay_memory_[ep_inds[n]].size();
-    int last_valid_frame = ep_size-1 - (kInputFrameCount-1) - (kUnroll-1);
+    int last_valid_frame = ep_size-1 - (kInputFramesPerTimestep-1) - (kUnroll-1);
     ep_starts[n] = std::uniform_int_distribution<int>
         (0, last_valid_frame)(random_engine);
   }
@@ -476,11 +762,11 @@ int DQN::UpdateRandom() {
     std::vector<InputFrames> past_frames_vec;
     for (int n = 0; n < batch_size; ++n) {
       const Episode& episode = replay_memory_[ep_inds[n]];
-      int last_frame_ts = ep_starts[n] + u + (kInputFrameCount-1);
+      int last_frame_ts = ep_starts[n] + u + (kInputFramesPerTimestep-1);
       CHECK_GT(episode.size(), last_frame_ts);
       if (std::get<3>(episode[last_frame_ts])) {
         InputFrames input_frames;
-        for (int i = 0; i < kInputFrameCount; ++i) {
+        for (int i = 0; i < kInputFramesPerTimestep; ++i) {
           int ts = ep_starts[n] + u + i;
           input_frames[i] = std::get<3>(episode[ts]).get();
         }
@@ -494,7 +780,7 @@ int DQN::UpdateRandom() {
     int target_value_idx = 0;
     for (int n = 0; n < batch_size; ++n) {
       const Episode& episode = replay_memory_[ep_inds[n]];
-      int ts = ep_starts[n] + u + (kInputFrameCount-1);
+      int ts = ep_starts[n] + u + (kInputFramesPerTimestep-1);
       CHECK_GT(episode.size(), ts);
       const auto& transition = episode[ts];
       const int action = static_cast<int>(std::get<1>(transition));
@@ -508,7 +794,7 @@ int DQN::UpdateRandom() {
       filter_input[filter_blob->offset(u,n,action,0)] = 1;
       target_input[target_blob->offset(u,n,action,0)] = target;
       const auto& frame = std::get<0>(transition);
-      int frame_idx = u + (kInputFrameCount-1);
+      int frame_idx = u + (kInputFramesPerTimestep-1);
       std::copy(frame->begin(), frame->end(),
                 frame_input.begin() + frames_blob->offset(n,frame_idx,0,0));
     }
@@ -516,7 +802,7 @@ int DQN::UpdateRandom() {
   }
   // Copy in the pre-input frames
   for (int n = 0; n < batch_size; ++n) {
-    for (int i = 0; i < kInputFrameCount-1; ++i) {
+    for (int i = 0; i < kInputFramesPerTimestep-1; ++i) {
       int ts = ep_starts[n] + i;
       const auto& frame = std::get<0>(replay_memory_[ep_inds[n]][ts]);
       std::copy(frame->begin(), frame->end(),
@@ -548,23 +834,20 @@ void DQN::InputDataIntoLayers(caffe::Net<float>& net,
   // Get the layers by name and cast them to memory layers
   const auto frames_input_layer =
       boost::dynamic_pointer_cast<caffe::MemoryDataLayer<float>>(
-          net.layer_by_name("frames_input_layer"));
+          net.layer_by_name(frames_layer_name));
   const auto cont_input_layer =
       boost::dynamic_pointer_cast<caffe::MemoryDataLayer<float>>(
-          net.layer_by_name("cont_input_layer"));
+          net.layer_by_name(cont_layer_name));
   const auto target_input_layer =
       boost::dynamic_pointer_cast<caffe::MemoryDataLayer<float>>(
-          net.layer_by_name("target_input_layer"));
+          net.layer_by_name(target_layer_name));
   const auto filter_input_layer =
       boost::dynamic_pointer_cast<caffe::MemoryDataLayer<float>>(
-          net.layer_by_name("filter_input_layer"));
-  // Make sure they were found and correctly casted
+          net.layer_by_name(filter_layer_name));
   CHECK(frames_input_layer);
   CHECK(cont_input_layer);
   CHECK(target_input_layer);
   CHECK(filter_input_layer);
-  // Input the data into the Memory Data Layers: Reset(float* data,
-  // float* labels, int n)
   frames_input_layer->Reset(frames_input, frames_input,
                             frames_input_layer->batch_size());
   cont_input_layer->Reset(cont_input, cont_input,

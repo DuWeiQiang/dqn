@@ -98,17 +98,17 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
           std::to_string(binary_save_num++) + ".bin";
       SaveInputFrame(*current_frame, fname);
     }
-    if (past_frames.size() < dqn::kInputFrameCount) {
+    if (past_frames.size() < dqn::kInputFramesPerTimestep) {
       // If there are not past frames enough for DQN input, just select NOOP
       for (int i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
         total_score += ale.act(PLAYER_A_NOOP);
       }
       continue;
     }
-    while (past_frames.size() > dqn::kInputFrameCount) {
+    while (past_frames.size() > dqn::kInputFramesPerTimestep) {
       past_frames.pop_front();
     }
-    CHECK_EQ(past_frames.size(), dqn::kInputFrameCount);
+    CHECK_EQ(past_frames.size(), dqn::kInputFramesPerTimestep);
     dqn::InputFrames input_frames;
     std::copy(past_frames.begin(), past_frames.end(), input_frames.begin());
     const auto action = dqn.SelectAction(input_frames, epsilon, frame > 0);
@@ -129,9 +129,9 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
           dqn::Transition(current_frame, action, reward,
                           dqn::PreprocessScreen(ale.getScreen()));
       episode.push_back(transition);
-      // if (dqn.memory_size() > FLAGS_memory_threshold) {
-      //   dqn.UpdateRandom();
-      // }
+      if (dqn.memory_size() > FLAGS_memory_threshold) {
+        dqn.UpdateRandom();
+      }
     }
   }
   if (update) {
@@ -163,17 +163,17 @@ double Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
   return avg_score;
 }
 
-int main(int argc, char** argv) {
-  std::string usage(argv[0]);
-  usage.append(" -rom rom -[evaluate|save path]");
-  gflags::SetUsageMessage(usage);
-  gflags::SetVersionString("0.1");
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
-  google::InstallFailureSignalHandler();
-  if (FLAGS_evaluate) {
-    google::LogToStderr();
-  }
+int testmain() {
+  // std::string usage(argv[0]);
+  // usage.append(" -rom rom -[evaluate|save path]");
+  // gflags::SetUsageMessage(usage);
+  // gflags::SetVersionString("0.1");
+  // gflags::ParseCommandLineFlags(&argc, &argv, true);
+  // google::InitGoogleLogging(argv[0]);
+  // google::InstallFailureSignalHandler();
+  // if (FLAGS_evaluate) {
+  //   google::LogToStderr();
+  // }
   if (FLAGS_rom.empty()) {
     LOG(ERROR) << "Rom file required but not set.";
     LOG(ERROR) << "Usage: " << gflags::ProgramUsage();
@@ -255,6 +255,8 @@ int main(int argc, char** argv) {
   // Construct the solver
   caffe::SolverParameter solver_param;
   caffe::ReadProtoFromTextFileOrDie(FLAGS_solver, &solver_param);
+  caffe::NetParameter* net_param = solver_param.mutable_net_param();
+  net_param->CopyFrom(dqn::CreateNet());
   solver_param.set_snapshot_prefix(save_path.c_str());
 
   dqn::DQN dqn(legal_actions, solver_param, FLAGS_memory, FLAGS_gamma,
@@ -297,10 +299,10 @@ int main(int argc, char** argv) {
     episode++;
 
     // If the size of replay memory is large enough, update DQN
-    if (dqn.memory_size() >= FLAGS_memory_threshold) {
-      dqn.Update();
-      LOG(INFO) << "Finished Update iter = " << dqn.current_iteration();
-    }
+    // if (dqn.memory_size() >= FLAGS_memory_threshold) {
+    //   dqn.Update();
+    //   LOG(INFO) << "Finished Update iter = " << dqn.current_iteration();
+    // }
 
     if (dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
       double avg_score = Evaluate(ale, dqn);
@@ -317,3 +319,18 @@ int main(int argc, char** argv) {
     Evaluate(ale, dqn);
   }
 };
+
+int main(int argc, char** argv) {
+ std::string usage(argv[0]);
+  usage.append(" -rom rom -[evaluate|save path]");
+  gflags::SetUsageMessage(usage);
+  gflags::SetVersionString("0.1");
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  google::InitGoogleLogging(argv[0]);
+  google::InstallFailureSignalHandler();
+  if (FLAGS_evaluate) {
+    google::LogToStderr();
+  }
+  testmain();
+}
+

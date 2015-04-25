@@ -13,32 +13,48 @@
 
 namespace dqn {
 
-constexpr auto kUnroll               = 2;
-constexpr auto kRawFrameHeight       = 210;
-constexpr auto kRawFrameWidth        = 160;
-constexpr auto kCroppedFrameSize     = 84;
-constexpr auto kCroppedFrameDataSize = kCroppedFrameSize * kCroppedFrameSize;
-constexpr auto kInputFrameCount      = 2;
-constexpr auto kMinibatchSize        = 32;
-constexpr auto kOutputCount          = 18;
+constexpr auto kUnroll                 = 2;
+constexpr auto kRawFrameHeight         = 210;
+constexpr auto kRawFrameWidth          = 160;
+constexpr auto kCroppedFrameSize       = 84;
+constexpr auto kCroppedFrameDataSize   = kCroppedFrameSize * kCroppedFrameSize;
+constexpr auto kInputFramesPerTimestep = 2;
+constexpr auto kMemoryInputFrames      = kUnroll + kInputFramesPerTimestep - 1;
+constexpr auto kMinibatchSize          = 32;
+constexpr auto kOutputCount            = 18;
+
+constexpr auto frames_layer_name = "frames_input_layer";
+constexpr auto cont_layer_name   = "cont_input_layer";
+constexpr auto target_layer_name = "target_input_layer";
+constexpr auto filter_layer_name = "filter_input_layer";
+
+constexpr auto train_frames_blob_name = "frames";
+constexpr auto test_frames_blob_name  = "frames_0";
+constexpr auto target_blob_name       = "target";
+constexpr auto filter_blob_name       = "filter";
+constexpr auto cont_blob_name         = "cont";
+constexpr auto q_values_blob_name     = "q_values";
+
+constexpr auto ip1Size = 256;
+constexpr auto lstmSize = 256;
 
 // Size of the memory data inputs for the train net.
-constexpr auto kFramesInputSize = kMinibatchSize *
-    (kUnroll + kInputFrameCount - 1) * kCroppedFrameDataSize;
+constexpr auto kFramesInputSize =
+    kMinibatchSize * kMemoryInputFrames * kCroppedFrameDataSize;
 constexpr auto kTargetInputSize = kUnroll * kMinibatchSize * kOutputCount;
 constexpr auto kFilterInputSize = kUnroll * kMinibatchSize * kOutputCount;
 constexpr auto kContInputSize = kUnroll * kMinibatchSize;
 
 // Size of the memory data inputs for the test net
-constexpr auto kTestFramesInputSize = kMinibatchSize * kInputFrameCount *
-    kCroppedFrameDataSize;
+constexpr auto kTestFramesInputSize =
+    kMinibatchSize * kInputFramesPerTimestep * kCroppedFrameDataSize;
 constexpr auto kTestTargetInputSize = kMinibatchSize * kOutputCount;
 constexpr auto kTestFilterInputSize = kMinibatchSize * kOutputCount;
 constexpr auto kTestContInputSize = kMinibatchSize;
 
 using FrameData    = std::array<uint8_t, kCroppedFrameDataSize>;
 using FrameDataSp  = std::shared_ptr<FrameData>;
-using InputFrames  = std::array<FrameDataSp, kInputFrameCount>;
+using InputFrames  = std::array<FrameDataSp, kInputFramesPerTimestep>;
 using Transition   = std::tuple<FrameDataSp, Action, float,
                                 boost::optional<FrameDataSp> >;
 using Episode      = std::vector<Transition>;
@@ -149,9 +165,13 @@ protected:
   NetSp test_net_; // Net used for testing
   NetSp clone_net_; // Clone used to generate targets.
   int last_clone_iter_; // Iteration in which the net was last cloned
-  std::array<float, kFramesInputSize> dummy_input_;
   std::mt19937 random_engine;
 };
+
+/**
+ * Create the net .prototxt
+ */
+caffe::NetParameter CreateNet();
 
 /**
  * Preprocess an ALE screen (downsampling & grayscaling)
