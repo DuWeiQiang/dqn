@@ -163,17 +163,17 @@ double Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
   return avg_score;
 }
 
-int testmain() {
-  // std::string usage(argv[0]);
-  // usage.append(" -rom rom -[evaluate|save path]");
-  // gflags::SetUsageMessage(usage);
-  // gflags::SetVersionString("0.1");
-  // gflags::ParseCommandLineFlags(&argc, &argv, true);
-  // google::InitGoogleLogging(argv[0]);
-  // google::InstallFailureSignalHandler();
-  // if (FLAGS_evaluate) {
-  //   google::LogToStderr();
-  // }
+int main(int argc, char** argv) {
+ std::string usage(argv[0]);
+  usage.append(" -rom rom -[evaluate|save path]");
+  gflags::SetUsageMessage(usage);
+  gflags::SetVersionString("0.1");
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  google::InitGoogleLogging(argv[0]);
+  google::InstallFailureSignalHandler();
+  if (FLAGS_evaluate) {
+    google::LogToStderr();
+  }
   if (FLAGS_rom.empty()) {
     LOG(ERROR) << "Rom file required but not set.";
     LOG(ERROR) << "Usage: " << gflags::ProgramUsage();
@@ -257,6 +257,9 @@ int testmain() {
   caffe::ReadProtoFromTextFileOrDie(FLAGS_solver, &solver_param);
   caffe::NetParameter* net_param = solver_param.mutable_net_param();
   net_param->CopyFrom(dqn::CreateNet());
+  std::string net_filename = save_path.native() + "_net.prototxt";
+  WriteProtoToTextFile(*net_param, net_filename.c_str());
+
   solver_param.set_snapshot_prefix(save_path.c_str());
 
   dqn::DQN dqn(legal_actions, solver_param, FLAGS_memory, FLAGS_gamma,
@@ -318,19 +321,4 @@ int testmain() {
   if (dqn.current_iteration() >= last_eval_iter) {
     Evaluate(ale, dqn);
   }
-};
-
-int main(int argc, char** argv) {
- std::string usage(argv[0]);
-  usage.append(" -rom rom -[evaluate|save path]");
-  gflags::SetUsageMessage(usage);
-  gflags::SetVersionString("0.1");
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::InitGoogleLogging(argv[0]);
-  google::InstallFailureSignalHandler();
-  if (FLAGS_evaluate) {
-    google::LogToStderr();
-  }
-  testmain();
 }
-

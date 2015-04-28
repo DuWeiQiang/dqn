@@ -56,13 +56,14 @@ def run_forward(image_dir, input_layer_name):
 
 def forward_from_frames(input_frames, input_layer_name):
   n,c,w,h = net.blobs[input_layer_name].data.shape
-  cont = np.ones([c,n,1,1], dtype=np.float32)
-  targets = np.zeros([c,n,18,1], dtype=np.float32)
-  filters = np.ones([c,n,18,1], dtype=np.float32)
+  kUnroll = 2
+  cont = np.ones([kUnroll,n,1,1], dtype=np.float32)
+  targets = np.zeros([kUnroll,n,18,1], dtype=np.float32)
+  filters = np.ones([kUnroll,n,18,1], dtype=np.float32)
   net.set_input_arrays(0, input_frames, np.zeros([n,1,1,1], dtype=np.float32))
-  net.set_input_arrays(1, cont, np.zeros([c,1,1,1], dtype=np.float32))
-  net.set_input_arrays(2, targets, np.zeros([c,1,1,1], dtype=np.float32))
-  net.set_input_arrays(3, filters, np.zeros([c,1,1,1], dtype=np.float32))
+  net.set_input_arrays(2, cont, np.zeros([kUnroll,1,1,1], dtype=np.float32))
+  net.set_input_arrays(3, targets, np.zeros([kUnroll,1,1,1], dtype=np.float32))
+  net.set_input_arrays(4, filters, np.zeros([kUnroll,1,1,1], dtype=np.float32))
   net.forward()
   net.backward()
   return input_frames
@@ -367,9 +368,9 @@ def test():
 
 seed(123)
 prototxt = 'gen_net.prototxt'
-snapshot = 'state/gen_net_u2f2_pong_iter_2000000.caffemodel'
+snapshot = 'state/singleTower_cheat_lrmult05_u2f2_pong_iter_1000000.caffemodel'
 snapshot_prefix = snapshot.split('_iter_')[0]
-phase = caffe.TEST
+phase = caffe.TRAIN
 net = caffe.Net(prototxt, snapshot, phase)
 image_dir = 'screen/'
 save_dir = 'pong_xray/'
@@ -383,6 +384,6 @@ for k, v in net.params.items():
   b = v[1].data
   print k, '[Weights]', w.shape, '[bias]', b.shape
 input_layer_name = net.blobs.keys()[0]
-run_forward(image_dir, input_layer_name)
+frames = run_forward(image_dir, input_layer_name)
 xray(net, save_dir)
-fmri(snapshot_prefix, save_dir, net_prototxt=prototxt, phase=caffe.TEST)
+# fmri(snapshot_prefix, save_dir, net_prototxt=prototxt, phase=caffe.TEST)

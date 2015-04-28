@@ -238,6 +238,7 @@ void ConvLayer(caffe::NetParameter& net_param,
                const std::vector<std::string>& bottoms,
                const std::vector<std::string>& tops,
                const std::string& shared_name,
+               const float& lr_mult,
                const boost::optional<caffe::Phase>& include_phase,
                const int num_output,
                const int kernel_size,
@@ -246,9 +247,15 @@ void ConvLayer(caffe::NetParameter& net_param,
   PopulateLayer(layer, name, "Convolution", bottoms, tops, include_phase);
   caffe::ParamSpec* weight_param = layer.add_param();
   weight_param->set_name(shared_name + "_w");
+  if (lr_mult >= 0) {
+    weight_param->set_lr_mult(lr_mult);
+  }
   weight_param->set_decay_mult(1);
   caffe::ParamSpec* bias_param = layer.add_param();
   bias_param->set_name(shared_name + "_b");
+  if (lr_mult >= 0) {
+    bias_param->set_lr_mult(2 * lr_mult);
+  }
   bias_param->set_decay_mult(0);
   caffe::ConvolutionParameter* conv_param = layer.mutable_convolution_param();
   conv_param->set_num_output(num_output);
@@ -278,6 +285,7 @@ void IPLayer(caffe::NetParameter& net_param,
              const std::vector<std::string>& bottoms,
              const std::vector<std::string>& tops,
              const std::string& shared_name,
+             const float& lr_mult,
              const boost::optional<caffe::Phase>& include_phase,
              const int num_output,
              const int axis) {
@@ -285,9 +293,15 @@ void IPLayer(caffe::NetParameter& net_param,
   PopulateLayer(layer, name, "InnerProduct", bottoms, tops, include_phase);
   caffe::ParamSpec* weight_param = layer.add_param();
   weight_param->set_name(shared_name + "_w");
+  if (lr_mult >= 0) {
+    weight_param->set_lr_mult(lr_mult);
+  }
   weight_param->set_decay_mult(1);
   caffe::ParamSpec* bias_param = layer.add_param();
   bias_param->set_name(shared_name + "_b");
+  if (lr_mult >= 0) {
+    bias_param->set_lr_mult(2 * lr_mult);
+  }
   bias_param->set_decay_mult(0);
   caffe::InnerProductParameter* ip_param = layer.mutable_inner_product_param();
   ip_param->set_num_output(num_output);
@@ -403,7 +417,7 @@ caffe::NetParameter CreateNet() {
       {1, kMinibatchSize, kOutputCount});
   SilenceLayer(np, "silence", {"dummy_frames","dummy_cont","dummy_filter",
           "dummy_target"}, {}, boost::none);
-  std::vector<std::string> ip1_tops, scrap_tops;
+  std::vector<std::string> frames_tops, scrap_tops;
   for (int t = 0; t < kUnroll; ++t) {
     std::string ts = std::to_string(t);
     boost::optional<caffe::Phase> phase;
@@ -426,29 +440,30 @@ caffe::NetParameter CreateNet() {
     }
     SliceLayer(np, "slice_"+ts, {train_frames_blob_name}, slice_tops,
                caffe::TRAIN, 1, slice_points);
-    ConvLayer(np, "conv1_"+ts, {"frames_"+ts}, {"conv1_"+ts}, "conv1", phase,
-              16, 8, 4);
-    ReluLayer(np, "conv1_relu_"+ts, {"conv1_"+ts}, {"conv1_"+ts}, phase);
-    ConvLayer(np, "conv2_"+ts, {"conv1_"+ts}, {"conv2_"+ts}, "conv2", phase,
-              32, 4, 2);
-    ReluLayer(np, "conv2_relu_"+ts, {"conv2_"+ts}, {"conv2_"+ts}, phase);
-    IPLayer(np, "ip1_"+ts, {"conv2_"+ts}, {"ip1_"+ts}, "ip1", phase, ip1Size,1);
-    ReluLayer(np, "ip1_relu_"+ts, {"ip1_"+ts}, {"ip1_"+ts}, phase);
-    ReshapeLayer(np, "ip1_reshape_"+ts, {"ip1_"+ts}, {"reshaped_ip1_"+ts},
-                 caffe::TRAIN, {1, kMinibatchSize, ip1Size});
-    ip1_tops.push_back("reshaped_ip1_"+ts);
+    frames_tops.push_back("frames_"+ts);
   }
   SilenceLayer(np, "scrap_silence", scrap_tops, {}, caffe::TRAIN);
-  ReshapeLayer(np, "ip1_reshape_0", {"ip1_0"}, {"concat_ip1"}, caffe::TEST,
-               {1, kMinibatchSize, ip1Size});
-  ConcatLayer(np, "concat_ip1", ip1_tops, {"concat_ip1"}, caffe::TRAIN, 0);
-  LstmLayer(np,"lstm1",{"concat_ip1","reshaped_cont"},{"lstm1"},boost::none,lstmSize);
-  IPLayer(np,"ip2",{"lstm1"},{q_values_blob_name},"ip2",boost::none,kOutputCount,2);
+  ConcatLayer(np, "concat_frames", frames_tops, {"all_frames"}, caffe::TRAIN,0);
+  ConvLayer(np, "conv1", {"all_frames"}, {"conv1"}, "conv1", -1, boost::none,
+            16, 8, 4);
+  ReluLayer(np, "conv1_relu", {"conv1"}, {"conv1"}, boost::none);
+  ConvLayer(np, "conv2", {"conv1"}, {"conv2"}, "conv2", -1, boost::none,
+            32, 4, 2);
+  ReluLayer(np, "conv2_relu", {"conv2"}, {"conv2"}, boost::none);
+  IPLayer(np, "ip1", {"conv2"}, {"ip1"}, "ip1", -1, boost::none, ip1Size, 1);
+  ReluLayer(np, "ip1_relu", {"ip1"}, {"ip1"}, boost::none);
+  ReshapeLayer(np, "ip1_reshape", {"ip1"}, {"final_ip1"},
+               caffe::TRAIN, {kUnroll, kMinibatchSize, ip1Size});
+  ReshapeLayer(np, "ip1_reshape", {"ip1"}, {"final_ip1"},
+               caffe::TEST, {1, kMinibatchSize, ip1Size});
+  LstmLayer(np, "lstm1", {"final_ip1","reshaped_cont"}, {"lstm1"}, boost::none,
+            lstmSize);
+  IPLayer(np, "ip2", {"lstm1"}, {q_values_blob_name}, "ip2", -1, boost::none,
+          kOutputCount, 2);
   EltwiseLayer(np, "eltwise_filter", {q_values_blob_name,"reshaped_filter"},
                {"filtered_q_values"}, boost::none, caffe::EltwiseParameter::PROD);
-  EuclideanLossLayer(np, "loss", {"filtered_q_values","target"}, {"loss"}, boost::none);
-  // WriteProtoToTextFile(np, "gen_net.prototxt");
-  // exit(0);
+  EuclideanLossLayer(np, "loss", {"filtered_q_values","target"}, {"loss"},
+                     boost::none);
   return np;
 }
 
@@ -812,6 +827,10 @@ int DQN::UpdateRandom() {
   InputDataIntoLayers(*net_, frame_input.data(), cont_input.data(),
                       target_input.data(), filter_input.data());
   solver_->Step(1);
+  CHECK(net_->has_blob("loss"));
+  const auto loss_blob = net_->blob_by_name("loss");
+  CHECK_EQ(loss_blob->count(), 1);
+  CHECK(!std::isinf(loss_blob->data_at(0,0,0,0)));
   return 1;
 }
 

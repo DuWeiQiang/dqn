@@ -2,7 +2,7 @@
 # net: "drqn.prototxt"
 solver_type: ADADELTA
 momentum: 0.95
-base_lr: 1
+base_lr: 0.1
 lr_policy: "step"
 gamma: 0.1
 stepsize: 10000000

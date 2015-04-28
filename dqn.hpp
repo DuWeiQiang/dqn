@@ -29,7 +29,7 @@ constexpr auto target_layer_name = "target_input_layer";
 constexpr auto filter_layer_name = "filter_input_layer";
 
 constexpr auto train_frames_blob_name = "frames";
-constexpr auto test_frames_blob_name  = "frames_0";
+constexpr auto test_frames_blob_name  = "all_frames";
 constexpr auto target_blob_name       = "target";
 constexpr auto filter_blob_name       = "filter";
 constexpr auto cont_blob_name         = "cont";
