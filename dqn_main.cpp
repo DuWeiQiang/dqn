@@ -82,17 +82,21 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
   CHECK(!ale.game_over());
   std::deque<dqn::FrameDataSp> past_frames;
   dqn::Episode episode;
+  const ALEScreen* screen = &ale.getScreen();
+  dqn::FrameDataSp current_frame = dqn::PreprocessScreen(*screen);
   auto total_score = 0.0;
   for (auto frame = 0; !ale.game_over(); ++frame) {
-    const ALEScreen& screen = ale.getScreen();
+    if (!update) { // The next screen will already be populated if doing updates
+      screen = &ale.getScreen();
+      current_frame = dqn::PreprocessScreen(*screen);
+    }
+    past_frames.push_back(current_frame);
     if (!FLAGS_save_screen.empty()) {
       std::stringstream ss;
       ss << FLAGS_save_screen << setfill('0') << setw(5) <<
           std::to_string(frame) << ".png";
-      SaveScreen(screen, ale, ss.str());
+      SaveScreen(*screen, ale, ss.str());
     }
-    const dqn::FrameDataSp current_frame = dqn::PreprocessScreen(screen);
-    past_frames.push_back(current_frame);
     if (!FLAGS_save_binary_screen.empty()) {
       static int binary_save_num = 0;
       string fname = FLAGS_save_binary_screen +
@@ -124,15 +128,18 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
         std::abs(immediate_score);
     assert(reward <= 1 && reward >= -1);
     if (update) {
+      // Get the next screen
+      screen = &ale.getScreen();
+      dqn::FrameDataSp next_frame = dqn::PreprocessScreen(*screen);
       // Add the current transition to replay memory
       const auto transition = ale.game_over() ?
           dqn::Transition(current_frame, action, reward, boost::none) :
-          dqn::Transition(current_frame, action, reward,
-                          dqn::PreprocessScreen(ale.getScreen()));
+          dqn::Transition(current_frame, action, reward, next_frame);
       episode.push_back(transition);
       if (dqn.memory_size() > FLAGS_memory_threshold) {
         dqn.UpdateRandom();
       }
+      current_frame = next_frame;
     }
   }
   if (update) {
