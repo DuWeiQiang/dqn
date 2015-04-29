@@ -13,7 +13,7 @@
 
 namespace dqn {
 
-constexpr auto kUnroll                 = 2;
+constexpr auto kUnroll                 = 10;
 constexpr auto kRawFrameHeight         = 210;
 constexpr auto kRawFrameWidth          = 160;
 constexpr auto kCroppedFrameSize       = 84;

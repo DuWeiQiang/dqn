@@ -458,6 +458,8 @@ caffe::NetParameter CreateNet() {
                caffe::TEST, {1, kMinibatchSize, ip1Size});
   LstmLayer(np, "lstm1", {"final_ip1","reshaped_cont"}, {"lstm1"}, boost::none,
             lstmSize);
+  // LstmLayer(np, "lstm2", {"lstm1","reshaped_cont"}, {"lstm2"}, boost::none,
+  //           lstmSize);
   IPLayer(np, "ip2", {"lstm1"}, {q_values_blob_name}, "ip2", -1, boost::none,
           kOutputCount, 2);
   EltwiseLayer(np, "eltwise_filter", {q_values_blob_name,"reshaped_filter"},

@@ -16,6 +16,7 @@ using namespace boost::filesystem;
 
 // DQN Parameters
 DEFINE_bool(gpu, true, "Use GPU to brew Caffe");
+DEFINE_int32(device, -1, "Which GPU to use");
 DEFINE_bool(gui, false, "Open a GUI window");
 DEFINE_string(save, "", "Prefix for saving snapshots");
 DEFINE_string(rom, "", "Atari 2600 ROM file to play");
@@ -238,6 +239,9 @@ int main(int argc, char** argv) {
 
   if (FLAGS_gpu) {
     caffe::Caffe::set_mode(caffe::Caffe::GPU);
+    if (FLAGS_device >= 0) {
+      caffe::Caffe::SetDevice(FLAGS_device);
+    }
   } else {
     caffe::Caffe::set_mode(caffe::Caffe::CPU);
   }
