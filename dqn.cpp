@@ -3,8 +3,13 @@
 #include <iostream>
 #include <cassert>
 #include <sstream>
+#include <boost/regex.hpp>
+#include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/iostreams/filtering_stream.hpp>
+#include <boost/iostreams/filtering_streambuf.hpp>
+#include <boost/iostreams/filter/gzip.hpp>
 #include <glog/logging.h>
 #include "prettyprint.hpp"
 
@@ -469,12 +474,96 @@ caffe::NetParameter CreateNet() {
   return np;
 }
 
+int ParseIterFromSnapshot(const std::string& snapshot) {
+    unsigned start = snapshot.find_last_of("_");
+    unsigned end = snapshot.find_last_of(".");
+    return std::stoi(snapshot.substr(start+1, end-start-1));
+}
+
+void RemoveSnapshots(const std::string& snapshot_prefix, int min_iter) {
+  std::string regexp(snapshot_prefix +
+                     "_iter_[0-9]+\\.(caffemodel|solverstate|replaymemory)");
+  for (const std::string& f : FilesMatchingRegexp(regexp)) {
+    int iter = ParseIterFromSnapshot(f);
+    if (iter < min_iter) {
+      LOG(INFO) << "Removing " << f;
+      CHECK(boost::filesystem::is_regular_file(f));
+      boost::filesystem::remove(f);
+    }
+  }
+}
+
+std::string FindLatestSnapshot(const std::string& snapshot_prefix) {
+  using namespace boost::filesystem;
+  std::string regexp(snapshot_prefix + "_iter_[0-9]+\\.solverstate");
+  std::vector<std::string> matching_files = FilesMatchingRegexp(regexp);
+  int max_iter = -1;
+  std::string latest = "";
+  for (const std::string& f : matching_files) {
+    int iter = ParseIterFromSnapshot(f);
+    if (iter > max_iter) {
+      // Look for an associated caffemodel + replaymemory
+      path p(f);
+      p = p.parent_path() / p.stem();
+      std::string caffemodel = p.native() + ".caffemodel";
+      std::string replaymemory = p.native() + ".replaymemory";
+      if (is_regular_file(caffemodel) && is_regular_file(replaymemory)) {
+        max_iter = iter;
+        latest = f;
+      }
+    }
+  }
+  return latest;
+}
+
 void DQN::LoadTrainedModel(const std::string& model_bin) {
   net_->CopyTrainedLayersFrom(model_bin);
 }
 
 void DQN::RestoreSolver(const std::string& solver_bin) {
   solver_->Restore(solver_bin.c_str());
+}
+
+std::vector<std::string> FilesMatchingRegexp(const std::string& regexp) {
+  using namespace boost::filesystem;
+  path search_stem(regexp);
+  path search_dir(current_path());
+  if (search_stem.has_parent_path()) {
+    search_dir = search_stem.parent_path();
+    search_stem = search_stem.filename();
+  }
+  const boost::regex expression(search_stem.native());
+  std::vector<std::string> matching_files;
+  directory_iterator end;
+  for(directory_iterator it(search_dir); it != end; ++it) {
+    if (is_regular_file(it->status())) {
+      path p(it->path());
+      boost::smatch what;
+      if (boost::regex_match(p.filename().native(), what, expression)) {
+        matching_files.push_back(p.native());
+      }
+    }
+  }
+  return matching_files;
+}
+
+void DQN::Snapshot(const std::string& snapshot_prefix, bool remove_old,
+                   bool snapshot_memory) {
+  using namespace boost::filesystem;
+  solver_->Snapshot(snapshot_prefix);
+  int snapshot_iter = current_iteration() + 1;
+  std::string fname = snapshot_prefix + "_iter_" + std::to_string(snapshot_iter);
+  CHECK(is_regular_file(fname + ".caffemodel"));
+  CHECK(is_regular_file(fname + ".solverstate"));
+  if (snapshot_memory) {
+    std::string mem_fname = fname + ".replaymemory";
+    LOG(INFO) << "Snapshotting memory to " << mem_fname;
+    SnapshotReplayMemory(mem_fname);
+    CHECK(is_regular_file(mem_fname));
+  }
+  if (remove_old) {
+    RemoveSnapshots(snapshot_prefix, snapshot_iter);
+  }
 }
 
 void DQN::Initialize() {
@@ -623,7 +712,6 @@ int DQN::Update() {
   if (ep_inds.size() > kMinibatchSize) {
     ep_inds.resize(kMinibatchSize);
   }
-
 
   FramesLayerInputData frame_input;
   TargetLayerInputData target_input;
@@ -878,4 +966,70 @@ void DQN::InputDataIntoLayers(caffe::Net<float>& net,
   filter_input_layer->Reset(filter_input, filter_input,
                             filter_input_layer->batch_size());
 }
+
+void DQN::ClearReplayMemory() {
+  replay_memory_.clear();
+  replay_memory_size_ = 0;
 }
+
+void DQN::SnapshotReplayMemory(const std::string& filename) {
+  std::ofstream ofile(filename.c_str(),
+                      std::ios_base::out | std::ofstream::binary);
+  boost::iostreams::filtering_ostream out;
+  out.push(boost::iostreams::gzip_compressor());
+  out.push(ofile);
+  int num_episodes = replay_memory_.size();
+  out.write((char*)&num_episodes, sizeof(int));
+  for (const Episode& ep : replay_memory_) {
+    int ep_len = ep.size();
+    out.write((char*)&ep_len, sizeof(int));
+  }
+  for (const Episode& ep : replay_memory_) {
+    for (const Transition& t : ep) {
+      const FrameDataSp& frame = std::get<0>(t);
+      out.write((char*)frame->begin(), kCroppedFrameDataSize * sizeof(uint8_t));
+      const Action& action = std::get<1>(t);
+      out.write((char*)&action, sizeof(Action));
+      const float& reward = std::get<2>(t);
+      out.write((char*)&reward, sizeof(float));
+    }
+  }
+  LOG(INFO) << "Saved memory of size " << replay_memory_size_;
+}
+
+void DQN::LoadReplayMemory(const std::string& filename) {
+  LOG(INFO) << "Loading memory from " << filename;
+  ClearReplayMemory();
+  std::ifstream ifile(filename.c_str(),
+                      std::ios_base::in | std::ofstream::binary);
+  boost::iostreams::filtering_istream in;
+  in.push(boost::iostreams::gzip_decompressor());
+  in.push(ifile);
+  int num_episodes = memory_size();
+  in.read((char*)&num_episodes, sizeof(int));
+  replay_memory_.resize(num_episodes);
+  for (int i = 0; i < num_episodes; ++i) {
+    int ep_len;
+    in.read((char*)&ep_len, sizeof(int));
+    replay_memory_[i].resize(ep_len);
+    replay_memory_size_ += ep_len;
+  }
+  for (int i = 0; i < num_episodes; ++i) {
+    Episode& ep = replay_memory_[i];
+    for (int j = 0; j < ep.size(); ++j) {
+      Transition& t = ep[j];
+      FrameDataSp frame = std::make_shared<FrameData>();
+      in.read((char*)frame->begin(), kCroppedFrameDataSize * sizeof(uint8_t));
+      std::get<0>(t) = frame;
+      if (j > 0) {
+        std::get<3>(ep[j-1]) = frame;
+      }
+      in.read((char*)&std::get<1>(t), sizeof(Action));
+      in.read((char*)&std::get<2>(t), sizeof(float));
+      std::get<3>(t) == boost::none;
+    }
+  }
+  LOG(INFO) << "replay_mem_size = " << replay_memory_size_;
+}
+
+} // namespace dqn

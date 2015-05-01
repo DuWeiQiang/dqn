@@ -99,8 +99,12 @@ public:
   // Restore solving from a solver file.
   void RestoreSolver(const std::string& solver_file);
 
-  // Snapshot the current model
-  void Snapshot() { solver_->Snapshot(); }
+  // Snapshot the model/solver/replay memory. Produces files:
+  // snapshot_prefix_iter_N.[caffemodel|solverstate|replaymem]. Optionally
+  // removes snapshots that share the same prefix but have a lower
+  // iteration number.
+  void Snapshot(const string& snapshot_prefix, bool remove_old=false,
+                bool snapshot_memory=true);
 
   // Select an action by epsilon-greedy. If cont is false, LSTM state
   // will be reset. cont should be true only at start of new episodes.
@@ -119,7 +123,13 @@ public:
   int UpdateRandom();
 
   // Clear the replay memory
-  void ClearReplayMemory() { replay_memory_.clear(); }
+  void ClearReplayMemory();
+
+  // Save the replay memory to a gzipped compressed file
+  void SnapshotReplayMemory(const std::string& filename);
+
+  // Load the replay memory from a gzipped compressed file
+  void LoadReplayMemory(const std::string& filename);
 
   // Get the number of episodes stored in the replay memory
   int memory_episodes() const { return replay_memory_.size(); }
@@ -167,6 +177,25 @@ protected:
   int last_clone_iter_; // Iteration in which the net was last cloned
   std::mt19937 random_engine;
 };
+
+/**
+ * Returns a vector of filenames matching a given regular expression.
+ */
+std::vector<std::string> FilesMatchingRegexp(const std::string& regexp);
+
+/**
+ * Removes snapshots starting with snapshot_prefix that have an
+ * iteration less than min_iter.
+ */
+void RemoveSnapshots(const std::string& snapshot_prefix, int min_iter);
+
+/**
+ * Look for the latest snapshot to resume from. Returns a string
+ * containing the path to the .solverstate. Returns empty string if
+ * none is found. Will only return if the snapshot contains all of:
+ * .solverstate,.caffemodel,.replaymemory
+ */
+std::string FindLatestSnapshot(const std::string& snapshot_prefix);
 
 /**
  * Create the net .prototxt

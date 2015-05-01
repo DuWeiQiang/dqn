@@ -31,10 +31,11 @@ DEFINE_string(save_screen, "", "File prefix in to save frames");
 DEFINE_string(save_binary_screen, "", "File prefix in to save binary frames");
 DEFINE_string(weights, "", "The pretrained weights load (*.caffemodel).");
 DEFINE_string(snapshot, "", "The solver state to load (*.solverstate).");
+DEFINE_bool(resume, true, "Automatically resume training from latest snapshot.");
 DEFINE_bool(evaluate, false, "Evaluation mode: only playing a game, no updates");
 DEFINE_double(evaluate_with_epsilon, .05, "Epsilon value to be used in evaluation mode");
 DEFINE_int32(evaluate_freq, 250000, "Frequency (steps) between evaluations");
-DEFINE_int32(repeat_games, 32, "Number of games played in evaluation mode");
+DEFINE_int32(repeat_games, 10, "Number of games played in evaluation mode");
 DEFINE_string(solver, "recurrent_solver.prototxt", "Solver parameter file (*.prototxt)");
 
 double CalculateEpsilon(const int iter) {
@@ -214,25 +215,6 @@ int main(int argc, char** argv) {
       save_path += "_";
       save_path += rom_file.stem();
     }
-    // Check for files that may be overwritten
-    assert(is_directory(snapshot_dir));
-    LOG(INFO) << "Snapshots Prefix: " << save_path;
-    directory_iterator end;
-    for(directory_iterator it(snapshot_dir); it!=end; ++it) {
-      if(boost::filesystem::is_regular_file(it->status())) {
-        std::string save_path_str = save_path.stem().native();
-        std::string other_str = it->path().filename().native();
-        auto res = std::mismatch(save_path_str.begin(),
-                                 save_path_str.end(),
-                                 other_str.begin());
-        if (res.first == save_path_str.end()) {
-          LOG(ERROR) << "Existing file " << it->path()
-                     << " conflicts with save path " << save_path;
-          LOG(ERROR) << "Please remove this file or specify another save path.";
-          exit(1);
-        }
-      }
-    }
     // Set the logging destinations
     google::SetLogDestination(google::GLOG_INFO,
                               (save_path.native() + "_INFO_").c_str());
@@ -251,6 +233,11 @@ int main(int argc, char** argv) {
     }
   } else {
     caffe::Caffe::set_mode(caffe::Caffe::CPU);
+  }
+
+  // Look for a recent snapshot to resume
+  if (FLAGS_resume && FLAGS_snapshot.empty()) {
+    FLAGS_snapshot = dqn::FindLatestSnapshot(save_path.native());
   }
 
   ALEInterface ale;
@@ -282,8 +269,14 @@ int main(int argc, char** argv) {
   }
 
   if (!FLAGS_snapshot.empty()) {
+    path p(FLAGS_snapshot);
+    p = p.parent_path() / p.stem();
+    std::string mem_fname = p.native() + ".replaymemory";
+    CHECK(is_regular_file(mem_fname))
+        << "Unable to find .replaymemory for snapshot: " << FLAGS_snapshot;
     LOG(INFO) << "Resuming from " << FLAGS_snapshot;
     dqn.RestoreSolver(FLAGS_snapshot);
+    dqn.LoadReplayMemory(mem_fname);
   } else if (!FLAGS_weights.empty()) {
     LOG(INFO) << "Finetuning from " << FLAGS_weights;
     dqn.LoadTrainedModel(FLAGS_weights);
@@ -299,7 +292,6 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  dqn.Snapshot();
   int last_eval_iter = 0;
   int episode = 0;
   double best_score = std::numeric_limits<double>::lowest();
@@ -311,25 +303,22 @@ int main(int argc, char** argv) {
               << ", iter = " << dqn.current_iteration()
               << ", replay_mem_size = " << dqn.memory_size();
     episode++;
-
-    // If the size of replay memory is large enough, update DQN
-    // if (dqn.memory_size() >= FLAGS_memory_threshold) {
-    //   dqn.Update();
-    //   LOG(INFO) << "Finished Update iter = " << dqn.current_iteration();
-    // }
-
     if (dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
       double avg_score = Evaluate(ale, dqn);
       if (avg_score > best_score) {
         LOG(INFO) << "iter " << dqn.current_iteration()
                   << " New High Score: " << avg_score;
         best_score = avg_score;
-        dqn.Snapshot();
+        std::string fname = save_path.native() + "_HiScore" +
+            std::to_string(int(avg_score));
+        dqn.Snapshot(fname, false, false);
       }
+      dqn.Snapshot(save_path.native(), true, true);
       last_eval_iter = dqn.current_iteration();
     }
   }
   if (dqn.current_iteration() >= last_eval_iter) {
     Evaluate(ale, dqn);
+    dqn.Snapshot(save_path.native(), true, true);
   }
 }
