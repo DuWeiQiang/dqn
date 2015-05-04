@@ -303,7 +303,8 @@ int main(int argc, char** argv) {
               << ", iter = " << dqn.current_iteration()
               << ", replay_mem_size = " << dqn.memory_size();
     episode++;
-    if (dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
+    if (score > best_score ||
+        dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
       double avg_score = Evaluate(ale, dqn);
       if (avg_score > best_score) {
         LOG(INFO) << "iter " << dqn.current_iteration()

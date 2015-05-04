@@ -6,7 +6,7 @@ gamma: 0.1
 stepsize: 10000000
 max_iter: 10000000
 display: 10000
-snapshot: 1000000
+# snapshot: 1000000
 test_iter: 0
 test_interval: 1000000000
 clip_gradients: 10
