@@ -34,7 +34,7 @@ DEFINE_string(snapshot, "", "The solver state to load (*.solverstate).");
 DEFINE_bool(resume, true, "Automatically resume training from latest snapshot.");
 DEFINE_bool(evaluate, false, "Evaluation mode: only playing a game, no updates");
 DEFINE_double(evaluate_with_epsilon, .05, "Epsilon value to be used in evaluation mode");
-DEFINE_int32(evaluate_freq, 250000, "Frequency (steps) between evaluations");
+DEFINE_int32(evaluate_freq, 50000, "Frequency (steps) between evaluations");
 DEFINE_int32(repeat_games, 10, "Number of games played in evaluation mode");
 DEFINE_string(solver, "recurrent_solver.prototxt", "Solver parameter file (*.prototxt)");
 

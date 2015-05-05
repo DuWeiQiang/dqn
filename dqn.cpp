@@ -692,7 +692,7 @@ void DQN::RememberEpisode(const Episode& episode) {
   }
 }
 
-int DQN::Update() {
+int DQN::UpdateSequential() {
   // Every clone_iters steps, update the clone_net_
   if (!clone_net_ || current_iteration() >= last_clone_iter_ + clone_frequency_) {
     LOG(INFO) << "Iter " << current_iteration() << ": Updating Clone Net";

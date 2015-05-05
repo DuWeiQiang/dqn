@@ -118,7 +118,7 @@ public:
   void RememberEpisode(const Episode& episode);
 
   // Update DQN. Returns the number of solver steps executed.
-  int Update();
+  int UpdateSequential();
   // Updates from a random minibatch of experiences
   int UpdateRandom();
 
