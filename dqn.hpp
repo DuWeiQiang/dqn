@@ -140,6 +140,8 @@ public:
   // Return the current iteration of the solver
   int current_iteration() const { return solver_->iter(); }
 
+  void CloneTestNet() { CloneNet(*test_net_); }
+
 protected:
   // Clone the given net and store the result in clone_net_
   void CloneNet(caffe::Net<float>& net);

@@ -26,7 +26,8 @@ DEFINE_double(epsilon, .1, "Value of epsilon after explore iterations.");
 DEFINE_double(gamma, .99, "Discount factor of future rewards (0,1]");
 DEFINE_int32(clone_freq, 10000, "Frequency (steps) of cloning the target network.");
 DEFINE_int32(memory_threshold, 50000, "Number of transitions to start learning");
-DEFINE_int32(skip_frame, 3, "Number of frames skipped");
+DEFINE_int32(skip_frame, 4, "Number of frames skipped");
+DEFINE_int32(update_frequency, 4, "Number of actions between SGD updates");
 DEFINE_string(save_screen, "", "File prefix in to save frames");
 DEFINE_string(save_binary_screen, "", "File prefix in to save binary frames");
 DEFINE_string(weights, "", "The pretrained weights load (*.caffemodel).");
@@ -46,20 +47,6 @@ double CalculateEpsilon(const int iter) {
   }
 }
 
-void SaveScreen(const ALEScreen& screen, const ALEInterface& ale,
-                const string filename) {
-  IntMatrix screen_matrix;
-  for (auto row = 0; row < screen.height(); row++) {
-    IntVect row_vec;
-    for (auto col = 0; col < screen.width(); col++) {
-      int pixel = screen.get(row, col);
-      row_vec.emplace_back(pixel);
-    }
-    screen_matrix.emplace_back(row_vec);
-  }
-  ale.theOSystem->p_export_screen->save_png(&screen_matrix, filename);
-}
-
 void SaveInputFrame(const dqn::FrameData& frame, const string filename) {
   std::ofstream ofs;
   ofs.open(filename, ios::out | ios::binary);
@@ -70,8 +57,8 @@ void SaveInputFrame(const dqn::FrameData& frame, const string filename) {
 }
 
 void InitializeALE(ALEInterface& ale, bool display_screen, std::string& rom) {
-  ale.set("display_screen", display_screen);
-  ale.set("disable_color_averaging", true);
+  ale.setBool("display_screen", display_screen);
+  ale.setBool("sound", display_screen);
   ale.loadROM(rom);
 }
 
@@ -81,6 +68,7 @@ void InitializeALE(ALEInterface& ale, bool display_screen, std::string& rom) {
 double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
                       const bool update) {
   CHECK(!ale.game_over());
+  int remaining_lives = ale.lives();
   std::deque<dqn::FrameDataSp> past_frames;
   dqn::Episode episode;
   const ALEScreen* screen = &ale.getScreen();
@@ -96,7 +84,7 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
       std::stringstream ss;
       ss << FLAGS_save_screen << setfill('0') << setw(5) <<
           std::to_string(frame) << ".png";
-      SaveScreen(*screen, ale, ss.str());
+      ale.saveScreenPNG(ss.str());
     }
     if (!FLAGS_save_binary_screen.empty()) {
       static int binary_save_num = 0;
@@ -125,8 +113,12 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
     total_score += immediate_score;
     // Rewards for DQN are normalized as follows:
     // 1 for any positive score, -1 for any negative score, otherwise 0
-    const auto reward = immediate_score == 0 ? 0 : immediate_score /
-        std::abs(immediate_score);
+    float reward = immediate_score == 0 ? 0 :
+        immediate_score / std::abs(immediate_score);
+    if (ale.lives() < remaining_lives) {
+      remaining_lives = ale.lives();
+      reward = -1;
+    }
     assert(reward <= 1 && reward >= -1);
     if (update) {
       // Get the next screen
@@ -137,7 +129,8 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
           dqn::Transition(current_frame, action, reward, boost::none) :
           dqn::Transition(current_frame, action, reward, next_frame);
       episode.push_back(transition);
-      if (dqn.memory_size() > FLAGS_memory_threshold) {
+      if (dqn.memory_size() > FLAGS_memory_threshold
+          && frame % FLAGS_update_frequency == 0) {
         dqn.UpdateRandom();
       }
       current_frame = next_frame;
