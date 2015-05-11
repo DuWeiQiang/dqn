@@ -13,11 +13,12 @@
 
 namespace dqn {
 
-constexpr auto kRawFrameHeight         = 210;
-constexpr auto kRawFrameWidth          = 160;
-constexpr auto kCroppedFrameSize       = 84;
-constexpr auto kCroppedFrameDataSize   = kCroppedFrameSize * kCroppedFrameSize;
-constexpr auto kOutputCount            = 18;
+constexpr auto kRawFrameHeight       = 210;
+constexpr auto kRawFrameWidth        = 160;
+constexpr auto kCroppedFrameSize     = 84;
+constexpr auto kCroppedFrameDataSize = kCroppedFrameSize * kCroppedFrameSize;
+constexpr auto kOutputCount          = 18;
+constexpr auto kObscuredFrameSize    = 42;
 
 constexpr auto frames_layer_name = "frames_input_layer";
 constexpr auto cont_layer_name   = "cont_input_layer";
@@ -119,6 +120,10 @@ public:
 
   void Benchmark(int iterations=1000);
 
+  // Obscures the screen by zeroing everything except for a randomly
+  // selected patch of size kObscuredScreenSize x kObscuredScreenSize.
+  void ObscureScreen(FrameDataSp& screen);
+
 protected:
   // Clone the given net and store the result in clone_net_
   void CloneNet(caffe::Net<float>& net);
@@ -191,7 +196,8 @@ std::string FindLatestSnapshot(const std::string& snapshot_prefix);
 int FindHiScore(const std::string& snapshot_prefix);
 
 /**
- * Preprocess an ALE screen (downsampling & grayscaling)
+ * Preprocess an ALE screen (downsampling & grayscaling). Optionally
+ * obscure the screen to make ALE into a POMDP.
  */
 FrameDataSp PreprocessScreen(const ALEScreen& raw_screen);
 

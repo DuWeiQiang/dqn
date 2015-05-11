@@ -139,6 +139,23 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
   return screen;
 }
 
+void DQN::ObscureScreen(FrameDataSp& screen) {
+  const int startx = std::uniform_int_distribution<int>
+      (0, kCroppedFrameSize - 1 - kObscuredFrameSize)(random_engine);
+  const int starty = std::uniform_int_distribution<int>
+      (0, kCroppedFrameSize - 1 - kObscuredFrameSize)(random_engine);
+  for (auto y = 0; y < kCroppedFrameSize; ++y) {
+    for (auto x = 0; x < kCroppedFrameSize; ++x) {
+      if (y >= starty && y < starty + kObscuredFrameSize &&
+          x >= startx && x < startx + kObscuredFrameSize) {
+        ;
+      } else {
+        (*screen)[y * kCroppedFrameSize + x] = 0;
+      }
+    }
+  }
+}
+
 void PrintQValues(const std::vector<float>& q_values, const ActionVect& actions) {
   CHECK_GT(q_values.size(), 0);
   CHECK_GT(actions.size(), 0);

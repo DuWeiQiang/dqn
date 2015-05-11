@@ -43,6 +43,7 @@ DEFINE_int32(repeat_games, 10, "Number of games played in evaluation mode");
 DEFINE_string(solver, "recurrent_solver.prototxt", "Solver parameter file (*.prototxt)");
 DEFINE_bool(time, false, "Time the network and exit");
 DEFINE_bool(unroll1_is_lstm, false, "Use LSTM layer instead of IP when unroll=1");
+DEFINE_bool(obscure, false, "Obscure the game screen");
 
 double CalculateEpsilon(const int iter) {
   if (iter < FLAGS_explore) {
@@ -78,12 +79,14 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
   dqn::Episode episode;
   const ALEScreen* screen = &ale.getScreen();
   dqn::FrameDataSp current_frame = dqn::PreprocessScreen(*screen);
+  if (FLAGS_obscure) { dqn.ObscureScreen(current_frame); }
   auto total_score = 0.0;
   bool first_action = true;
   for (auto frame = 0; !ale.game_over(); ++frame) {
     if (!update) { // The next screen will already be populated if doing updates
       screen = &ale.getScreen();
       current_frame = dqn::PreprocessScreen(*screen);
+      if (FLAGS_obscure) { dqn.ObscureScreen(current_frame); }
     }
     past_frames.push_back(current_frame);
     if (!FLAGS_save_screen.empty()) {
@@ -131,6 +134,7 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
       // Get the next screen
       screen = &ale.getScreen();
       dqn::FrameDataSp next_frame = dqn::PreprocessScreen(*screen);
+      if (FLAGS_obscure) { dqn.ObscureScreen(next_frame); }
       // Add the current transition to replay memory
       const auto transition = ale.game_over() ?
           dqn::Transition(current_frame, action, reward, boost::none) :
