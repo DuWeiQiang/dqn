@@ -464,7 +464,6 @@ caffe::NetParameter DQN::CreateNet(bool unroll1_is_lstm) {
   if (unroll_ > 1 || unroll1_is_lstm) {
     LstmLayer(np, "lstm1", {"reshaped_conv3","reshaped_cont"}, {"lstm1"}, boost::none,
               lstmSize);
-    // ReluLayer(np, "lstm1_relu", {"lstm1"}, {"lstm1"}, boost::none);
   } else {
     IPLayer(np, "lstm1", {"reshaped_conv3"}, {"lstm1"}, "lstm1", -1, boost::none,
             lstmSize, 2);
@@ -535,7 +534,6 @@ int FindHiScore(const std::string& snapshot_prefix) {
   std::vector<std::string> matching_files = FilesMatchingRegexp(regexp);
   int max_score = std::numeric_limits<int>::lowest();
   for (const std::string& f : matching_files) {
-    LOG(INFO) << "HiScore: " << f;
     int score = ParseScoreFromSnapshot(f);
     if (score > max_score) {
       max_score = score;
