@@ -186,6 +186,11 @@ void RemoveSnapshots(const std::string& snapshot_prefix, int min_iter);
 std::string FindLatestSnapshot(const std::string& snapshot_prefix);
 
 /**
+ * Look for the best HiScore matching the given snapshot prefix
+ */
+int FindHiScore(const std::string& snapshot_prefix);
+
+/**
  * Preprocess an ALE screen (downsampling & grayscaling)
  */
 FrameDataSp PreprocessScreen(const ALEScreen& raw_screen);

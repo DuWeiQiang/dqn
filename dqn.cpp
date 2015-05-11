@@ -482,9 +482,15 @@ caffe::NetParameter DQN::CreateNet(bool unroll1_is_lstm) {
 }
 
 int ParseIterFromSnapshot(const std::string& snapshot) {
-    unsigned start = snapshot.find_last_of("_");
-    unsigned end = snapshot.find_last_of(".");
-    return std::stoi(snapshot.substr(start+1, end-start-1));
+  unsigned start = snapshot.find_last_of("_");
+  unsigned end = snapshot.find_last_of(".");
+  return std::stoi(snapshot.substr(start+1, end-start-1));
+}
+
+int ParseScoreFromSnapshot(const std::string& snapshot) {
+  unsigned start = snapshot.find("_HiScore");
+  unsigned end = snapshot.find("_iter_");
+  return std::stoi(snapshot.substr(start+8, end-start-1));
 }
 
 void RemoveSnapshots(const std::string& snapshot_prefix, int min_iter) {
@@ -521,6 +527,21 @@ std::string FindLatestSnapshot(const std::string& snapshot_prefix) {
     }
   }
   return latest;
+}
+
+int FindHiScore(const std::string& snapshot_prefix) {
+  using namespace boost::filesystem;
+  std::string regexp(snapshot_prefix + "_HiScore[-]?[0-9]+_iter_[0-9]+\\.caffemodel");
+  std::vector<std::string> matching_files = FilesMatchingRegexp(regexp);
+  int max_score = std::numeric_limits<int>::lowest();
+  for (const std::string& f : matching_files) {
+    LOG(INFO) << "HiScore: " << f;
+    int score = ParseScoreFromSnapshot(f);
+    if (score > max_score) {
+      max_score = score;
+    }
+  }
+  return max_score;
 }
 
 DQN::DQN(const ActionVect& legal_actions,

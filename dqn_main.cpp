@@ -302,6 +302,10 @@ int main(int argc, char** argv) {
   int last_eval_iter = 0;
   int episode = 0;
   double best_score = std::numeric_limits<double>::lowest();
+  if (FLAGS_resume) {
+    best_score = dqn::FindHiScore(save_path.native());
+    LOG(INFO) << "Resuming from HiScore " << best_score;
+  }
   while (dqn.current_iteration() < solver_param.max_iter()) {
     double epsilon = CalculateEpsilon(dqn.current_iteration());
     double score = PlayOneEpisode(ale, dqn, epsilon, true);
