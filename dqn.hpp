@@ -13,14 +13,10 @@
 
 namespace dqn {
 
-constexpr auto kUnroll                 = 10;
 constexpr auto kRawFrameHeight         = 210;
 constexpr auto kRawFrameWidth          = 160;
 constexpr auto kCroppedFrameSize       = 84;
 constexpr auto kCroppedFrameDataSize   = kCroppedFrameSize * kCroppedFrameSize;
-constexpr auto kInputFramesPerTimestep = 2;
-constexpr auto kMemoryInputFrames      = kUnroll + kInputFramesPerTimestep - 1;
-constexpr auto kMinibatchSize          = 32;
 constexpr auto kOutputCount            = 18;
 
 constexpr auto frames_layer_name = "frames_input_layer";
@@ -35,37 +31,19 @@ constexpr auto filter_blob_name       = "filter";
 constexpr auto cont_blob_name         = "cont";
 constexpr auto q_values_blob_name     = "q_values";
 
-constexpr auto ip1Size = 256;
-constexpr auto lstmSize = 256;
+constexpr auto ip1Size = 512;
+constexpr auto lstmSize = 512;
 
-// Size of the memory data inputs for the train net.
-constexpr auto kFramesInputSize =
-    kMinibatchSize * kMemoryInputFrames * kCroppedFrameDataSize;
-constexpr auto kTargetInputSize = kUnroll * kMinibatchSize * kOutputCount;
-constexpr auto kFilterInputSize = kUnroll * kMinibatchSize * kOutputCount;
-constexpr auto kContInputSize = kUnroll * kMinibatchSize;
-
-// Size of the memory data inputs for the test net
-constexpr auto kTestFramesInputSize =
-    kMinibatchSize * kInputFramesPerTimestep * kCroppedFrameDataSize;
-constexpr auto kTestTargetInputSize = kMinibatchSize * kOutputCount;
-constexpr auto kTestFilterInputSize = kMinibatchSize * kOutputCount;
-constexpr auto kTestContInputSize = kMinibatchSize;
-
-using FrameData    = std::array<uint8_t, kCroppedFrameDataSize>;
-using FrameDataSp  = std::shared_ptr<FrameData>;
-using InputFrames  = std::array<FrameDataSp, kInputFramesPerTimestep>;
-using Transition   = std::tuple<FrameDataSp, Action, float,
+using FrameData        = std::array<uint8_t, kCroppedFrameDataSize>;
+using FrameDataSp      = std::shared_ptr<FrameData>;
+using InputFrames      = std::vector<FrameDataSp>;
+using InputFramesBatch = std::vector<InputFrames>;
+using Transition       = std::tuple<FrameDataSp, Action, float,
                                 boost::optional<FrameDataSp> >;
-using Episode      = std::vector<Transition>;
-using ReplayMemory = std::deque<Episode>;
-using MemoryLayer  = caffe::MemoryDataLayer<float>;
-using FrameVec     = std::vector<FrameDataSp>;
-
-using FramesLayerInputData = std::array<float, kFramesInputSize>;
-using TargetLayerInputData = std::array<float, kTargetInputSize>;
-using FilterLayerInputData = std::array<float, kFilterInputSize>;
-using ContLayerInputData = std::array<float, kContInputSize>;
+using Episode          = std::vector<Transition>;
+using ReplayMemory     = std::deque<Episode>;
+using MemoryLayer      = caffe::MemoryDataLayer<float>;
+using FrameVec         = std::vector<FrameDataSp>;
 
 using ActionValue = std::pair<Action, float>;
 using SolverSp = std::shared_ptr<caffe::Solver<float>>;
@@ -77,21 +55,18 @@ using NetSp = boost::shared_ptr<caffe::Net<float>>;
 class DQN {
 public:
   DQN(const ActionVect& legal_actions,
-      const caffe::SolverParameter& solver_param,
       const int replay_memory_capacity,
       const double gamma,
-      const int clone_frequency) :
-        legal_actions_(legal_actions),
-        solver_param_(solver_param),
-        replay_memory_capacity_(replay_memory_capacity),
-        gamma_(gamma),
-        clone_frequency_(clone_frequency),
-        replay_memory_size_(0),
-        last_clone_iter_(0),
-        random_engine(0) {}
+      const int clone_frequency,
+      const int unroll,
+      const int minibatch_size,
+      const int input_frames_per_timestep);
 
   // Initialize DQN. Must be called before calling any other method.
-  void Initialize();
+  void Initialize(caffe::SolverParameter& solver_param);
+
+  // Create the caffe net .prototxt
+  caffe::NetParameter CreateNet(bool unroll1_is_lstm);
 
   // Load a trained model from a file.
   void LoadTrainedModel(const std::string& model_file);
@@ -111,7 +86,7 @@ public:
   Action SelectAction(const InputFrames& frames, double epsilon, bool cont);
 
   // Select a batch of actions by epsilon-greedy.
-  ActionVect SelectActions(const std::vector<InputFrames>& frames_batch,
+  ActionVect SelectActions(const InputFramesBatch& frames_batch,
                            double epsilon, bool cont);
 
   // Add an episode to the replay memory
@@ -142,6 +117,8 @@ public:
 
   void CloneTestNet() { CloneNet(*test_net_); }
 
+  void Benchmark(int iterations=1000);
+
 protected:
   // Clone the given net and store the result in clone_net_
   void CloneNet(caffe::Net<float>& net);
@@ -165,8 +142,17 @@ protected:
                            float* filter_input);
 
 protected:
+  int unroll_; // Number of steps to unroll recurrent layers
+  int minibatch_size_; // Size of each minibatch
+  int frames_per_timestep_; // History of frames given at each timestep
+  int frames_per_forward_; // Number of frames needed by each forward
+
+  std::vector<float> frame_input_;
+  std::vector<float> target_input_;
+  std::vector<float> filter_input_;
+  std::vector<float> cont_input_;
+
   const ActionVect legal_actions_;
-  const caffe::SolverParameter solver_param_;
   const int replay_memory_capacity_;
   const double gamma_;
   const int clone_frequency_; // How often (steps) the clone_net is updated
@@ -198,11 +184,6 @@ void RemoveSnapshots(const std::string& snapshot_prefix, int min_iter);
  * .solverstate,.caffemodel,.replaymemory
  */
 std::string FindLatestSnapshot(const std::string& snapshot_prefix);
-
-/**
- * Create the net .prototxt
- */
-caffe::NetParameter CreateNet();
 
 /**
  * Preprocess an ALE screen (downsampling & grayscaling)

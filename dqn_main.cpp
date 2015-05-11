@@ -24,10 +24,13 @@ DEFINE_int32(memory, 400000, "Capacity of replay memory");
 DEFINE_int32(explore, 1000000, "Iterations for epsilon to reach given value.");
 DEFINE_double(epsilon, .1, "Value of epsilon after explore iterations.");
 DEFINE_double(gamma, .99, "Discount factor of future rewards (0,1]");
-DEFINE_int32(clone_freq, 10000, "Frequency (steps) of cloning the target network.");
+DEFINE_int32(clone_freq, 10000, "Frequency (steps) of cloning the target network");
 DEFINE_int32(memory_threshold, 50000, "Number of transitions to start learning");
 DEFINE_int32(skip_frame, 4, "Number of frames skipped");
-DEFINE_int32(update_frequency, 4, "Number of actions between SGD updates");
+DEFINE_int32(update_frequency, 1, "Number of actions between SGD updates");
+DEFINE_int32(unroll, 10, "RNN iterations to unroll");
+DEFINE_int32(minibatch, 32, "Minibatch size");
+DEFINE_int32(frames_per_timestep, 4, "Frames given to agent at each timestep");
 DEFINE_string(save_screen, "", "File prefix in to save frames");
 DEFINE_string(save_binary_screen, "", "File prefix in to save binary frames");
 DEFINE_string(weights, "", "The pretrained weights load (*.caffemodel).");
@@ -38,6 +41,8 @@ DEFINE_double(evaluate_with_epsilon, .05, "Epsilon value to be used in evaluatio
 DEFINE_int32(evaluate_freq, 50000, "Frequency (steps) between evaluations");
 DEFINE_int32(repeat_games, 10, "Number of games played in evaluation mode");
 DEFINE_string(solver, "recurrent_solver.prototxt", "Solver parameter file (*.prototxt)");
+DEFINE_bool(time, false, "Time the network and exit");
+DEFINE_bool(unroll1_is_lstm, false, "Use LSTM layer instead of IP when unroll=1");
 
 double CalculateEpsilon(const int iter) {
   if (iter < FLAGS_explore) {
@@ -74,6 +79,7 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
   const ALEScreen* screen = &ale.getScreen();
   dqn::FrameDataSp current_frame = dqn::PreprocessScreen(*screen);
   auto total_score = 0.0;
+  bool first_action = true;
   for (auto frame = 0; !ale.game_over(); ++frame) {
     if (!update) { // The next screen will already be populated if doing updates
       screen = &ale.getScreen();
@@ -92,20 +98,21 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
           std::to_string(binary_save_num++) + ".bin";
       SaveInputFrame(*current_frame, fname);
     }
-    if (past_frames.size() < dqn::kInputFramesPerTimestep) {
+    if (past_frames.size() < FLAGS_frames_per_timestep) {
       // If there are not past frames enough for DQN input, just select NOOP
       for (int i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
         total_score += ale.act(PLAYER_A_NOOP);
       }
       continue;
     }
-    while (past_frames.size() > dqn::kInputFramesPerTimestep) {
+    while (past_frames.size() > FLAGS_frames_per_timestep) {
       past_frames.pop_front();
     }
-    CHECK_EQ(past_frames.size(), dqn::kInputFramesPerTimestep);
-    dqn::InputFrames input_frames;
+    CHECK_EQ(past_frames.size(), FLAGS_frames_per_timestep);
+    dqn::InputFrames input_frames(FLAGS_frames_per_timestep);
     std::copy(past_frames.begin(), past_frames.end(), input_frames.begin());
-    const auto action = dqn.SelectAction(input_frames, epsilon, frame > 0);
+    const auto action = dqn.SelectAction(input_frames, epsilon, !first_action);
+    first_action = false;
     auto immediate_score = 0.0;
     for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
       immediate_score += ale.act(action);
@@ -243,19 +250,20 @@ int main(int argc, char** argv) {
       << "Give a snapshot to resume training or weights to finetune "
       "but not both.";
 
+  dqn::DQN dqn(legal_actions, FLAGS_memory, FLAGS_gamma,
+               FLAGS_clone_freq, FLAGS_unroll, FLAGS_minibatch,
+               FLAGS_frames_per_timestep);
+
   // Construct the solver
   caffe::SolverParameter solver_param;
   caffe::ReadProtoFromTextFileOrDie(FLAGS_solver, &solver_param);
   caffe::NetParameter* net_param = solver_param.mutable_net_param();
-  net_param->CopyFrom(dqn::CreateNet());
+  net_param->CopyFrom(dqn.CreateNet(FLAGS_unroll1_is_lstm));
   std::string net_filename = save_path.native() + "_net.prototxt";
   WriteProtoToTextFile(*net_param, net_filename.c_str());
-
   solver_param.set_snapshot_prefix(save_path.c_str());
 
-  dqn::DQN dqn(legal_actions, solver_param, FLAGS_memory, FLAGS_gamma,
-               FLAGS_clone_freq);
-  dqn.Initialize();
+  dqn.Initialize(solver_param);
 
   if (!FLAGS_save_screen.empty()) {
     LOG(INFO) << "Saving screens to: " << FLAGS_save_screen;
@@ -285,18 +293,25 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  if (FLAGS_time) {
+    auto score = PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, true);
+    dqn.Benchmark();
+    return 0;
+  }
+
   int last_eval_iter = 0;
   int episode = 0;
   double best_score = std::numeric_limits<double>::lowest();
   while (dqn.current_iteration() < solver_param.max_iter()) {
     double epsilon = CalculateEpsilon(dqn.current_iteration());
     double score = PlayOneEpisode(ale, dqn, epsilon, true);
+    int iter = dqn.current_iteration();
     LOG(INFO) << "Episode " << episode << " score = " << score
               << ", epsilon = " << epsilon
-              << ", iter = " << dqn.current_iteration()
+              << ", iter = " << iter
               << ", replay_mem_size = " << dqn.memory_size();
     episode++;
-    if (score > best_score ||
+    if ((score > best_score && iter >= FLAGS_explore) ||
         dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
       double avg_score = Evaluate(ale, dqn);
       if (avg_score > best_score) {

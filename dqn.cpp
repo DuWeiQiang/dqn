@@ -380,97 +380,104 @@ void EuclideanLossLayer(caffe::NetParameter& net_param,
   PopulateLayer(layer, name, "EuclideanLoss", bottoms, tops, include_phase);
 }
 
-caffe::NetParameter CreateNet() {
+caffe::NetParameter DQN::CreateNet(bool unroll1_is_lstm) {
   caffe::NetParameter np;
   np.set_name("Deep Recurrent Q-Network");
   MemoryDataLayer(
       np, frames_layer_name, {train_frames_blob_name,"dummy_frames"}, caffe::TRAIN,
-      {kMinibatchSize, kMemoryInputFrames, kCroppedFrameSize, kCroppedFrameSize});
+      {minibatch_size_, frames_per_forward_, kCroppedFrameSize, kCroppedFrameSize});
   MemoryDataLayer(
       np, cont_layer_name, {cont_blob_name,"dummy_cont"}, caffe::TRAIN,
-      {kUnroll, kMinibatchSize, 1, 1});
+      {unroll_, minibatch_size_, 1, 1});
   MemoryDataLayer(
       np, target_layer_name, {target_blob_name,"dummy_target"}, caffe::TRAIN,
-      {kUnroll, kMinibatchSize, kOutputCount, 1});
+      {unroll_, minibatch_size_, kOutputCount, 1});
   MemoryDataLayer(
       np, filter_layer_name, {filter_blob_name,"dummy_filter"}, caffe::TRAIN,
-      {kUnroll, kMinibatchSize, kOutputCount, 1});
+      {unroll_, minibatch_size_, kOutputCount, 1});
+  SilenceLayer(np, "silence", {"dummy_frames","dummy_cont","dummy_filter",
+          "dummy_target"}, {}, caffe::TRAIN);
   ReshapeLayer(
       np, "reshape_cont", {cont_blob_name}, {"reshaped_cont"}, caffe::TRAIN,
-      {kUnroll, kMinibatchSize});
+      {unroll_, minibatch_size_});
   ReshapeLayer(
       np, "reshape_filter", {filter_blob_name}, {"reshaped_filter"}, caffe::TRAIN,
-      {kUnroll, kMinibatchSize, kOutputCount});
+      {unroll_, minibatch_size_, kOutputCount});
   MemoryDataLayer(
       np, frames_layer_name, {test_frames_blob_name,"dummy_frames"},
       caffe::TEST,
-      {kMinibatchSize,kInputFramesPerTimestep,kCroppedFrameSize,kCroppedFrameSize});
+      {minibatch_size_,frames_per_timestep_,kCroppedFrameSize,kCroppedFrameSize});
   MemoryDataLayer(
       np, cont_layer_name, {cont_blob_name,"dummy_cont"}, caffe::TEST,
-      {1, kMinibatchSize, 1, 1});
-  MemoryDataLayer(
-      np, target_layer_name, {target_blob_name,"dummy_target"}, caffe::TEST,
-      {1, kMinibatchSize, kOutputCount, 1});
-  MemoryDataLayer(
-      np, filter_layer_name, {filter_blob_name,"dummy_filter"}, caffe::TEST,
-      {1, kMinibatchSize, kOutputCount, 1});
+      {1, minibatch_size_, 1, 1});
+  SilenceLayer(np, "silence", {"dummy_frames","dummy_cont"}, {}, caffe::TEST);
   ReshapeLayer(
       np, "reshape_cont", {cont_blob_name}, {"reshaped_cont"}, caffe::TEST,
-      {1, kMinibatchSize});
-  ReshapeLayer(
-      np, "reshape_filter", {filter_blob_name}, {"reshaped_filter"}, caffe::TEST,
-      {1, kMinibatchSize, kOutputCount});
-  SilenceLayer(np, "silence", {"dummy_frames","dummy_cont","dummy_filter",
-          "dummy_target"}, {}, boost::none);
-  std::vector<std::string> frames_tops, scrap_tops;
-  for (int t = 0; t < kUnroll; ++t) {
-    std::string ts = std::to_string(t);
-    boost::optional<caffe::Phase> phase;
-    if (t > 0) { phase.reset(caffe::TRAIN); }
-    std::vector<int> slice_points;
-    std::vector<std::string> slice_tops;
-    if (t == 0) {
-      slice_points = {kInputFramesPerTimestep};
-      slice_tops = {"frames_"+ts, "scrap_"+ts};
-      scrap_tops.push_back("scrap_"+ts);
-    } else if (t == kUnroll - 1) {
-      slice_points = {t};
-      slice_tops = {"scrap_"+ts, "frames_"+ts};
-      scrap_tops.push_back("scrap_"+ts);
-    } else {
-      slice_tops = {"scrap1_"+ts, "frames_"+ts, "scrap2_"+ts};
-      scrap_tops.push_back("scrap1_"+ts);
-      scrap_tops.push_back("scrap2_"+ts);
-      slice_points = {t, t + kInputFramesPerTimestep};
+      {1, minibatch_size_});
+  if (unroll_ > 1) {
+    std::vector<std::string> frames_tops, scrap_tops;
+    for (int t = 0; t < unroll_; ++t) {
+      std::string ts = std::to_string(t);
+      boost::optional<caffe::Phase> phase;
+      if (t > 0) { phase.reset(caffe::TRAIN); }
+      std::vector<int> slice_points;
+      std::vector<std::string> slice_tops;
+      if (t == 0) {
+        slice_points = {frames_per_timestep_};
+        slice_tops = {"frames_"+ts, "scrap_"+ts};
+        scrap_tops.push_back("scrap_"+ts);
+      } else if (t == unroll_ - 1) {
+        slice_points = {t};
+        slice_tops = {"scrap_"+ts, "frames_"+ts};
+        scrap_tops.push_back("scrap_"+ts);
+      } else {
+        slice_tops = {"scrap1_"+ts, "frames_"+ts, "scrap2_"+ts};
+        scrap_tops.push_back("scrap1_"+ts);
+        scrap_tops.push_back("scrap2_"+ts);
+        slice_points = {t, t + frames_per_timestep_};
+      }
+      SliceLayer(np, "slice_"+ts, {train_frames_blob_name}, slice_tops,
+                 caffe::TRAIN, 1, slice_points);
+      frames_tops.push_back("frames_"+ts);
     }
-    SliceLayer(np, "slice_"+ts, {train_frames_blob_name}, slice_tops,
-               caffe::TRAIN, 1, slice_points);
-    frames_tops.push_back("frames_"+ts);
+    SilenceLayer(np, "scrap_silence", scrap_tops, {}, caffe::TRAIN);
+    ConcatLayer(np, "concat_frames", frames_tops, {"all_frames"}, caffe::TRAIN,0);
+    ConvLayer(np, "conv1", {"all_frames"}, {"conv1"}, "conv1", -1,
+              boost::none, 32, 8, 4);
+  } else {
+    ConvLayer(np, "conv1", {train_frames_blob_name}, {"conv1"}, "conv1", -1,
+              caffe::TRAIN, 32, 8, 4);
+    ConvLayer(np, "conv1", {"all_frames"}, {"conv1"}, "conv1", -1, caffe::TEST,
+              32, 8, 4);
   }
-  SilenceLayer(np, "scrap_silence", scrap_tops, {}, caffe::TRAIN);
-  ConcatLayer(np, "concat_frames", frames_tops, {"all_frames"}, caffe::TRAIN,0);
-  ConvLayer(np, "conv1", {"all_frames"}, {"conv1"}, "conv1", -1, boost::none,
-            16, 8, 4);
   ReluLayer(np, "conv1_relu", {"conv1"}, {"conv1"}, boost::none);
   ConvLayer(np, "conv2", {"conv1"}, {"conv2"}, "conv2", -1, boost::none,
-            32, 4, 2);
+            64, 4, 2);
   ReluLayer(np, "conv2_relu", {"conv2"}, {"conv2"}, boost::none);
-  IPLayer(np, "ip1", {"conv2"}, {"ip1"}, "ip1", -1, boost::none, ip1Size, 1);
-  ReluLayer(np, "ip1_relu", {"ip1"}, {"ip1"}, boost::none);
-  ReshapeLayer(np, "ip1_reshape", {"ip1"}, {"final_ip1"},
-               caffe::TRAIN, {kUnroll, kMinibatchSize, ip1Size});
-  ReshapeLayer(np, "ip1_reshape", {"ip1"}, {"final_ip1"},
-               caffe::TEST, {1, kMinibatchSize, ip1Size});
-  LstmLayer(np, "lstm1", {"final_ip1","reshaped_cont"}, {"lstm1"}, boost::none,
-            lstmSize);
-  // LstmLayer(np, "lstm2", {"lstm1","reshaped_cont"}, {"lstm2"}, boost::none,
-  //           lstmSize);
+  ConvLayer(np, "conv3", {"conv2"}, {"conv3"}, "conv3", -1, boost::none,
+            64, 3, 1);
+  ReluLayer(np, "conv3_relu", {"conv3"}, {"conv3"}, boost::none);
+  ReshapeLayer(np, "conv3_reshape", {"conv3"}, {"reshaped_conv3"},
+               caffe::TRAIN, {unroll_, minibatch_size_, 64*7*7});
+  ReshapeLayer(np, "conv3_reshape", {"conv3"}, {"reshaped_conv3"},
+               caffe::TEST, {1, minibatch_size_, 64*7*7});
+  if (unroll_ > 1 || unroll1_is_lstm) {
+    LstmLayer(np, "lstm1", {"reshaped_conv3","reshaped_cont"}, {"lstm1"}, boost::none,
+              lstmSize);
+    // ReluLayer(np, "lstm1_relu", {"lstm1"}, {"lstm1"}, boost::none);
+  } else {
+    IPLayer(np, "lstm1", {"reshaped_conv3"}, {"lstm1"}, "lstm1", -1, boost::none,
+            lstmSize, 2);
+    ReluLayer(np, "ip1_relu", {"lstm1"}, {"lstm1"}, boost::none);
+    SilenceLayer(np, "cont_silence", {"reshaped_cont"}, {}, boost::none);
+  }
+
   IPLayer(np, "ip2", {"lstm1"}, {q_values_blob_name}, "ip2", -1, boost::none,
           kOutputCount, 2);
   EltwiseLayer(np, "eltwise_filter", {q_values_blob_name,"reshaped_filter"},
-               {"filtered_q_values"}, boost::none, caffe::EltwiseParameter::PROD);
+               {"filtered_q_values"}, caffe::TRAIN, caffe::EltwiseParameter::PROD);
   EuclideanLossLayer(np, "loss", {"filtered_q_values","target"}, {"loss"},
-                     boost::none);
+                     caffe::TRAIN);
   return np;
 }
 
@@ -515,6 +522,37 @@ std::string FindLatestSnapshot(const std::string& snapshot_prefix) {
   }
   return latest;
 }
+
+DQN::DQN(const ActionVect& legal_actions,
+              const int replay_memory_capacity,
+              const double gamma,
+              const int clone_frequency,
+              const int unroll,
+              const int minibatch_size,
+              const int frames_per_timestep) :
+    legal_actions_(legal_actions),
+    replay_memory_capacity_(replay_memory_capacity),
+    gamma_(gamma),
+    clone_frequency_(clone_frequency),
+    unroll_(unroll),
+    frames_per_timestep_(frames_per_timestep),
+    minibatch_size_(minibatch_size),
+  replay_memory_size_(0),
+  last_clone_iter_(0),
+  random_engine(0)
+{
+  frames_per_forward_ = unroll_ + frames_per_timestep_ - 1;
+  int frames_input_size = minibatch_size_ * frames_per_forward_ *
+      kCroppedFrameDataSize;
+  int target_input_size = unroll_ * minibatch_size_ * kOutputCount;
+  int filter_input_size = unroll_ * minibatch_size_ * kOutputCount;
+  int cont_input_size = unroll_ * minibatch_size_;
+  frame_input_.resize(frames_input_size);
+  target_input_.resize(target_input_size);
+  filter_input_.resize(filter_input_size);
+  cont_input_.resize(cont_input_size);
+}
+
 
 void DQN::LoadTrainedModel(const std::string& model_bin) {
   net_->CopyTrainedLayersFrom(model_bin);
@@ -566,9 +604,9 @@ void DQN::Snapshot(const std::string& snapshot_prefix, bool remove_old,
   }
 }
 
-void DQN::Initialize() {
+void DQN::Initialize(caffe::SolverParameter& solver_param) {
   // Initialize net and solver
-  solver_.reset(caffe::GetSolver<float>(solver_param_));
+  solver_.reset(caffe::GetSolver<float>(solver_param));
   net_ = solver_->net();
   CHECK_EQ(solver_->test_nets().size(), 1);
   test_net_ = solver_->test_nets()[0];
@@ -577,29 +615,29 @@ void DQN::Initialize() {
   // Clone net maintains its own set of parameters
   CloneNet(*test_net_);
   // Check the primary network
-  HasBlobSize(*net_, train_frames_blob_name, {kMinibatchSize,
-          kMemoryInputFrames, kCroppedFrameSize, kCroppedFrameSize});
-  HasBlobSize(*net_, target_blob_name, {kUnroll, kMinibatchSize, kOutputCount, 1});
-  HasBlobSize(*net_, filter_blob_name, {kUnroll, kMinibatchSize, kOutputCount, 1});
-  HasBlobSize(*net_, cont_blob_name, {kUnroll, kMinibatchSize, 1, 1});
+  HasBlobSize(*net_, train_frames_blob_name, {minibatch_size_,
+          frames_per_forward_, kCroppedFrameSize, kCroppedFrameSize});
+  HasBlobSize(*net_, target_blob_name, {unroll_,minibatch_size_,kOutputCount,1});
+  HasBlobSize(*net_, filter_blob_name, {unroll_,minibatch_size_,kOutputCount,1});
+  HasBlobSize(*net_, cont_blob_name, {unroll_, minibatch_size_, 1, 1});
   // Check the test network
-  HasBlobSize(*test_net_, test_frames_blob_name, {kMinibatchSize,
-          kInputFramesPerTimestep, kCroppedFrameSize, kCroppedFrameSize});
-  HasBlobSize(*test_net_, target_blob_name, {1, kMinibatchSize, kOutputCount, 1});
-  HasBlobSize(*test_net_, filter_blob_name, {1, kMinibatchSize, kOutputCount, 1});
-  HasBlobSize(*test_net_, cont_blob_name, {1, kMinibatchSize, 1, 1});
+  HasBlobSize(*test_net_, test_frames_blob_name, {minibatch_size_,
+          frames_per_timestep_, kCroppedFrameSize, kCroppedFrameSize});
+  // HasBlobSize(*test_net_, target_blob_name, {1,minibatch_size_,kOutputCount,1});
+  // HasBlobSize(*test_net_, filter_blob_name, {1,minibatch_size_,kOutputCount,1});
+  HasBlobSize(*test_net_, cont_blob_name, {1, minibatch_size_, 1, 1});
   LOG(INFO) << "Finished " << net_->name() << " Initialization";
 }
 
 Action DQN::SelectAction(const InputFrames& frames, const double epsilon,
                          bool cont) {
-  return SelectActions(std::vector<InputFrames>{{frames}}, epsilon, cont)[0];
+  return SelectActions(InputFramesBatch{{frames}}, epsilon, cont)[0];
 }
 
-ActionVect DQN::SelectActions(const std::vector<InputFrames>& frames_batch,
+ActionVect DQN::SelectActions(const InputFramesBatch& frames_batch,
                               const double epsilon, bool cont) {
   CHECK(epsilon <= 1.0 && epsilon >= 0.0);
-  CHECK_LE(frames_batch.size(), kMinibatchSize);
+  CHECK_LE(frames_batch.size(), minibatch_size_);
   ActionVect actions(frames_batch.size());
   if (std::uniform_real_distribution<>(0.0, 1.0)(random_engine) < epsilon) {
     // Select randomly
@@ -624,12 +662,12 @@ ActionValue DQN::SelectActionGreedily(caffe::Net<float>& net,
                                       const InputFrames& last_frames,
                                       bool cont) {
   return SelectActionGreedily(
-      net, std::vector<InputFrames>{{last_frames}}, cont).front();
+      net, InputFramesBatch{{last_frames}}, cont).front();
 }
 
 std::vector<ActionValue>
 DQN::SelectActionGreedily(caffe::Net<float>& net,
-                          const std::vector<InputFrames>& frames_batch,
+                          const InputFramesBatch& frames_batch,
                           bool cont) {
   std::vector<ActionValue> results;
   if (frames_batch.empty()) {
@@ -638,33 +676,26 @@ DQN::SelectActionGreedily(caffe::Net<float>& net,
   CHECK_EQ(net.phase(), caffe::TEST);
   CHECK(net.has_blob(test_frames_blob_name));
   const auto frames_blob = net.blob_by_name(test_frames_blob_name);
-  CHECK_LE(frames_batch.size(), kMinibatchSize);
-  std::array<float, kTestFramesInputSize> frames_input;
-  frames_input.fill(0.0);
-  std::array<float, kTestContInputSize> cont_input;
-  cont_input.fill(cont);
-  FilterLayerInputData filter_input;
-  filter_input.fill(0.0);
-  TargetLayerInputData target_input;
-  target_input.fill(0.0);
+  CHECK_LE(frames_batch.size(), minibatch_size_);
+  std::fill(frame_input_.begin(), frame_input_.end(), 0.0f);
+  std::fill(cont_input_.begin(), cont_input_.end(), cont);
   // Input frames to the net and compute Q values for each legal action
   for (int n = 0; n < frames_batch.size(); ++n) {
     const InputFrames& input_frames = frames_batch[n];
-    for (int i = 0; i < kInputFramesPerTimestep; ++i) {
+    for (int i = 0; i < frames_per_timestep_; ++i) {
       const FrameDataSp& frame_data = input_frames[i];
       std::copy(frame_data->begin(), frame_data->end(),
-                frames_input.begin() + frames_blob->offset(n,i,0,0));
+                frame_input_.begin() + frames_blob->offset(n,i,0,0));
     }
   }
-  InputDataIntoLayers(net, frames_input.data(), cont_input.data(),
-                      target_input.data(), filter_input.data());
+  InputDataIntoLayers(net, frame_input_.data(), cont_input_.data(), NULL, NULL);
   net.ForwardPrefilled(nullptr);
   // Collect the Results
   results.reserve(frames_batch.size());
   CHECK(net.has_blob(q_values_blob_name));
   const auto q_values_blob = net.blob_by_name(q_values_blob_name);
   for (int i = 0; i < frames_batch.size(); ++i) {
-    // Get the Q-values from the net: kUnroll*kMinibatchSize*kOutputCount
+    // Get the Q-values from the net: unroll_*minibatch_size_*kOutputCount
     const auto action_evaluator = [&](Action action) {
       const auto q = q_values_blob->data_at(0, i, static_cast<int>(action), 0);
       CHECK(!std::isnan(q));
@@ -709,30 +740,25 @@ int DQN::UpdateSequential() {
   std::vector<int> ep_inds(replay_memory_.size());
   std::iota(ep_inds.begin(), ep_inds.end(), 0);
   std::random_shuffle(ep_inds.begin(), ep_inds.end());
-  if (ep_inds.size() > kMinibatchSize) {
-    ep_inds.resize(kMinibatchSize);
+  if (ep_inds.size() > minibatch_size_) {
+    ep_inds.resize(minibatch_size_);
   }
-
-  FramesLayerInputData frame_input;
-  TargetLayerInputData target_input;
-  FilterLayerInputData filter_input;
-  ContLayerInputData cont_input;
 
   bool active_episodes = ep_inds.size();
   int t = 0;
   int update_step = 0;
   std::vector<std::deque<dqn::FrameDataSp> > past_frames(ep_inds.size());
   while (active_episodes > 0) {
-    frame_input.fill(0.0f);
-    filter_input.fill(0.0f);
-    target_input.fill(0.0f);
-    cont_input.fill(1.0f);
+    std::fill(frame_input_.begin(), frame_input_.end(), 0.0f);
+    std::fill(filter_input_.begin(), filter_input_.end(), 0.0f);
+    std::fill(target_input_.begin(), target_input_.end(), 0.0f);
+    std::fill(cont_input_.begin(), cont_input_.end(), 0.0f);
     if (t == 0) { // Cont is zeroed for the first step of the episode
-      for (int n = 0; n < kMinibatchSize; ++n) {
-        cont_input[cont_blob->offset(0,n,0,0)] = 0.0f;
+      for (int n = 0; n < minibatch_size_; ++n) {
+        cont_input_[cont_blob->offset(0,n,0,0)] = 0.0f;
       }
     }
-    for (int i = 0; i < kUnroll; ++i, ++t) {
+    for (int i = 0; i < unroll_; ++i, ++t) {
       // FrameVec next_frames;
       // next_frames.reserve(ep_inds.size());
       active_episodes = 0;
@@ -743,23 +769,23 @@ int DQN::UpdateSequential() {
           active_episodes++;
           // next_frames.emplace_back(std::get<3>(episode[t]).get());
           frame_deque.push_back(std::get<3>(episode[t]).get());
-          while (frame_deque.size() > kInputFramesPerTimestep) {
+          while (frame_deque.size() > frames_per_timestep_) {
             frame_deque.pop_front();
           }
         } else {
           frame_deque.clear();
         }
       }
-      if (t < kInputFramesPerTimestep) {
+      if (t < frames_per_timestep_) {
         continue;
       }
       // Get the next state QValues
-      std::vector<InputFrames> past_frames_vec;
+      InputFramesBatch past_frames_vec;
       for (int n = 0; n < ep_inds.size(); ++n) {
         const auto& frame_deque = past_frames[n];
         if (!frame_deque.empty()) {
-          CHECK_EQ(frame_deque.size(), kInputFramesPerTimestep);
-          InputFrames input_frames;
+          CHECK_EQ(frame_deque.size(), frames_per_timestep_);
+          InputFrames input_frames(frame_deque.size());
           std::copy(frame_deque.begin(), frame_deque.end(),
                     input_frames.begin());
           past_frames_vec.emplace_back(input_frames);
@@ -787,17 +813,17 @@ int DQN::UpdateSequential() {
           //             << " maxact: " << actions_and_values[target_value_idx-1].first;
           // }
           CHECK(!std::isnan(target));
-          filter_input[filter_blob->offset(i,n,action,0)] = 1;
-          target_input[target_blob->offset(i,n,action,0)] = target;
+          filter_input_[filter_blob->offset(i,n,action,0)] = 1;
+          target_input_[target_blob->offset(i,n,action,0)] = target;
           const auto& frame = std::get<0>(transition);
           std::copy(frame->begin(), frame->end(),
-                    frame_input.begin() + frames_blob->offset(n,i,0,0));
+                    frame_input_.begin() + frames_blob->offset(n,i,0,0));
         }
       }
       CHECK_EQ(target_value_idx, actions_and_values.size());
     }
-    InputDataIntoLayers(*net_, frame_input.data(), cont_input.data(),
-                        target_input.data(), filter_input.data());
+    InputDataIntoLayers(*net_, frame_input_.data(), cont_input_.data(),
+                        target_input_.data(), filter_input_.data());
     // LOG(INFO) << "Forward on main net";
     // net_->ForwardPrefilled(nullptr);
     // std::vector<ActionValue> results;
@@ -806,7 +832,7 @@ int DQN::UpdateSequential() {
     // CHECK(q_values_blob);
     // for (int z = 0; z < 2; ++z) {
     //   for (int i = 0; i < ep_inds.size(); ++i) {
-    //     // Get the Q-values from the net: kUnroll*kMinibatchSize*kOutputCount
+    //     // Get the Q-values from the net: unroll_*minibatch_size_*kOutputCount
     //     const auto action_evaluator = [&](Action action) {
     //       const auto q = q_values_blob->data_at(z, i, static_cast<int>(action), 0);
     //       CHECK(!std::isnan(q));
@@ -825,6 +851,44 @@ int DQN::UpdateSequential() {
   return update_step;
 }
 
+void DQN::Benchmark(int iterations) {
+  UpdateRandom();
+  while (memory_episodes() < minibatch_size_) {
+    RememberEpisode(replay_memory_[0]);
+  }
+
+  LOG(INFO) << "*** Benchmark begins ***";
+  LOG(INFO) << "Testing for " << iterations << " iterations.";
+  caffe::Timer total_timer;
+  total_timer.Start();
+  caffe::Timer update_timer;
+  update_timer.Start();
+  for (int j = 0; j < iterations; ++j) {
+    UpdateRandom();
+  }
+  update_timer.Stop();
+  LOG(INFO) << "Average Update: " << update_timer.MilliSeconds() /
+    iterations << " ms.";
+  CHECK(memory_size() > frames_per_forward_);
+  InputFrames frames;
+  for (int i = 0; i < frames_per_forward_; ++i) {
+    frames.push_back(std::get<0>(replay_memory_[0][i]));
+  }
+  caffe::Timer select_timer;
+  select_timer.Start();
+  for (int j = 0; j < iterations; ++j) {
+    SelectAction(frames, 0, true);
+  }
+  select_timer.Stop();
+  LOG(INFO) << "Average Select Action: " << select_timer.MilliSeconds() /
+    iterations << " ms.";
+  total_timer.Stop();
+  LOG(INFO) << "Total Time: " << total_timer.MilliSeconds() << " ms.";
+  auto h = 1000000. / iterations * total_timer.MilliSeconds() / 1000. / 3600.;
+  LOG(INFO) << "Estimated Time to 1M iters: " << h << " hours.";
+  LOG(INFO) << "*** Benchmark ends ***";
+}
+
 int DQN::UpdateRandom() {
   // Every clone_iters steps, update the clone_net_
   if (!clone_net_ || current_iteration() >= last_clone_iter_ + clone_frequency_) {
@@ -836,42 +900,38 @@ int DQN::UpdateRandom() {
   const auto cont_blob = net_->blob_by_name(cont_blob_name);
   const auto filter_blob = net_->blob_by_name(filter_blob_name);
   const auto target_blob = net_->blob_by_name(target_blob_name);
-  FramesLayerInputData frame_input;
-  TargetLayerInputData target_input;
-  FilterLayerInputData filter_input;
-  ContLayerInputData cont_input;
-  frame_input.fill(0.0f);
-  filter_input.fill(0.0f);
-  target_input.fill(0.0f);
-  cont_input.fill(1.0f);
-  for (int n = 0; n < kMinibatchSize; ++n) {
-    cont_input[cont_blob->offset(0,n,0,0)] = 0.0f;
+  std::fill(frame_input_.begin(), frame_input_.end(), 0.0f);
+  std::fill(filter_input_.begin(), filter_input_.end(), 0.0f);
+  std::fill(target_input_.begin(), target_input_.end(), 0.0f);
+  std::fill(cont_input_.begin(), cont_input_.end(), 1.0f);
+  for (int n = 0; n < minibatch_size_; ++n) {
+    cont_input_[cont_blob->offset(0,n,0,0)] = 0.0f;
   }
   // Randomly select unique episodes to learn from
   std::vector<int> ep_inds(replay_memory_.size());
   std::iota(ep_inds.begin(), ep_inds.end(), 0);
   std::random_shuffle(ep_inds.begin(), ep_inds.end());
-  if (ep_inds.size() > kMinibatchSize) {
-    ep_inds.resize(kMinibatchSize);
+  if (ep_inds.size() > minibatch_size_) {
+    ep_inds.resize(minibatch_size_);
   }
   int batch_size = ep_inds.size();
   // Time to start each episode
   std::vector<int> ep_starts(batch_size);
   for (int n = 0; n < batch_size; ++n) {
     int ep_size = replay_memory_[ep_inds[n]].size();
-    int last_valid_frame = ep_size-1 - (kInputFramesPerTimestep-1) - (kUnroll-1);
+    int last_valid_frame = ep_size-1 - (frames_per_timestep_-1) - (unroll_-1);
     ep_starts[n] = std::uniform_int_distribution<int>
         (0, last_valid_frame)(random_engine);
   }
-  for (int u = 0; u < kUnroll; ++u) {
-    std::vector<InputFrames> past_frames_vec;
+  for (int u = 0; u < unroll_; ++u) {
+    InputFramesBatch past_frames_vec;
     for (int n = 0; n < batch_size; ++n) {
       const Episode& episode = replay_memory_[ep_inds[n]];
-      int last_frame_ts = ep_starts[n] + u + (kInputFramesPerTimestep-1);
+      int last_frame_ts = ep_starts[n] + u + (frames_per_timestep_-1);
       CHECK_GT(episode.size(), last_frame_ts);
       if (std::get<3>(episode[last_frame_ts])) {
-        InputFrames input_frames;
-        for (int i = 0; i < kInputFramesPerTimestep; ++i) {
+        InputFrames input_frames(frames_per_timestep_);
+        for (int i = 0; i < frames_per_timestep_; ++i) {
           int ts = ep_starts[n] + u + i;
           input_frames[i] = std::get<3>(episode[ts]).get();
         }
@@ -885,7 +945,7 @@ int DQN::UpdateRandom() {
     int target_value_idx = 0;
     for (int n = 0; n < batch_size; ++n) {
       const Episode& episode = replay_memory_[ep_inds[n]];
-      int ts = ep_starts[n] + u + (kInputFramesPerTimestep-1);
+      int ts = ep_starts[n] + u + (frames_per_timestep_-1);
       CHECK_GT(episode.size(), ts);
       const auto& transition = episode[ts];
       const int action = static_cast<int>(std::get<1>(transition));
@@ -896,26 +956,26 @@ int DQN::UpdateRandom() {
           reward + gamma_ * actions_and_values[target_value_idx++].second :
           reward;
       CHECK(!std::isnan(target));
-      filter_input[filter_blob->offset(u,n,action,0)] = 1;
-      target_input[target_blob->offset(u,n,action,0)] = target;
+      filter_input_[filter_blob->offset(u,n,action,0)] = 1;
+      target_input_[target_blob->offset(u,n,action,0)] = target;
       const auto& frame = std::get<0>(transition);
-      int frame_idx = u + (kInputFramesPerTimestep-1);
+      int frame_idx = u + (frames_per_timestep_-1);
       std::copy(frame->begin(), frame->end(),
-                frame_input.begin() + frames_blob->offset(n,frame_idx,0,0));
+                frame_input_.begin() + frames_blob->offset(n,frame_idx,0,0));
     }
     CHECK_EQ(target_value_idx, actions_and_values.size());
   }
   // Copy in the pre-input frames
   for (int n = 0; n < batch_size; ++n) {
-    for (int i = 0; i < kInputFramesPerTimestep-1; ++i) {
+    for (int i = 0; i < frames_per_timestep_-1; ++i) {
       int ts = ep_starts[n] + i;
       const auto& frame = std::get<0>(replay_memory_[ep_inds[n]][ts]);
       std::copy(frame->begin(), frame->end(),
-                frame_input.begin() + frames_blob->offset(n,i,0,0));
+                frame_input_.begin() + frames_blob->offset(n,i,0,0));
     }
   }
-  InputDataIntoLayers(*net_, frame_input.data(), cont_input.data(),
-                      target_input.data(), filter_input.data());
+  InputDataIntoLayers(*net_, frame_input_.data(), cont_input_.data(),
+                      target_input_.data(), filter_input_.data());
   solver_->Step(1);
   CHECK(net_->has_blob("loss"));
   const auto loss_blob = net_->blob_by_name("loss");
@@ -940,31 +1000,37 @@ void DQN::InputDataIntoLayers(caffe::Net<float>& net,
                               float* cont_input,
                               float* target_input,
                               float* filter_input) {
+
   // Get the layers by name and cast them to memory layers
   const auto frames_input_layer =
       boost::dynamic_pointer_cast<caffe::MemoryDataLayer<float>>(
           net.layer_by_name(frames_layer_name));
+  CHECK(frames_input_layer);
+  frames_input_layer->Reset(frames_input, frames_input,
+                            frames_input_layer->batch_size());
   const auto cont_input_layer =
       boost::dynamic_pointer_cast<caffe::MemoryDataLayer<float>>(
           net.layer_by_name(cont_layer_name));
-  const auto target_input_layer =
-      boost::dynamic_pointer_cast<caffe::MemoryDataLayer<float>>(
-          net.layer_by_name(target_layer_name));
-  const auto filter_input_layer =
-      boost::dynamic_pointer_cast<caffe::MemoryDataLayer<float>>(
-          net.layer_by_name(filter_layer_name));
-  CHECK(frames_input_layer);
   CHECK(cont_input_layer);
-  CHECK(target_input_layer);
-  CHECK(filter_input_layer);
-  frames_input_layer->Reset(frames_input, frames_input,
-                            frames_input_layer->batch_size());
   cont_input_layer->Reset(cont_input, cont_input,
                           cont_input_layer->batch_size());
-  target_input_layer->Reset(target_input, target_input,
-                            target_input_layer->batch_size());
-  filter_input_layer->Reset(filter_input, filter_input,
-                            filter_input_layer->batch_size());
+
+  // No need to input target/filter to test network
+  if (net.phase() == caffe::TRAIN) {
+    const auto target_input_layer =
+        boost::dynamic_pointer_cast<caffe::MemoryDataLayer<float>>(
+            net.layer_by_name(target_layer_name));
+    CHECK(target_input_layer);
+    target_input_layer->Reset(target_input, target_input,
+                              target_input_layer->batch_size());
+
+    const auto filter_input_layer =
+        boost::dynamic_pointer_cast<caffe::MemoryDataLayer<float>>(
+            net.layer_by_name(filter_layer_name));
+    CHECK(filter_input_layer);
+    filter_input_layer->Reset(filter_input, filter_input,
+                              filter_input_layer->batch_size());
+  }
 }
 
 void DQN::ClearReplayMemory() {
