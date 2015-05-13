@@ -61,7 +61,7 @@ public:
       const int clone_frequency,
       const int unroll,
       const int minibatch_size,
-      const int input_frames_per_timestep);
+      const int frames_per_timestep);
 
   // Initialize DQN. Must be called before calling any other method.
   void Initialize(caffe::SolverParameter& solver_param);
@@ -152,10 +152,10 @@ protected:
   int frames_per_timestep_; // History of frames given at each timestep
   int frames_per_forward_; // Number of frames needed by each forward
 
-  std::vector<float> frame_input_;
-  std::vector<float> target_input_;
-  std::vector<float> filter_input_;
-  std::vector<float> cont_input_;
+  // Size of the input blobs to the memory layers
+  int frame_input_size_TRAIN_, target_input_size_TRAIN_,
+    filter_input_size_TRAIN_, cont_input_size_TRAIN_;
+  int frame_input_size_TEST_, cont_input_size_TEST_;
 
   const ActionVect legal_actions_;
   const int replay_memory_capacity_;
