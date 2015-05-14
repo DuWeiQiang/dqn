@@ -43,7 +43,7 @@ DEFINE_int32(repeat_games, 10, "Number of games played in evaluation mode");
 DEFINE_string(solver, "recurrent_solver.prototxt", "Solver parameter file (*.prototxt)");
 DEFINE_bool(time, false, "Time the network and exit");
 DEFINE_bool(unroll1_is_lstm, false, "Use LSTM layer instead of IP when unroll=1");
-DEFINE_bool(obscure, false, "Obscure the game screen");
+DEFINE_int32(obscure_size, 0, "Size of obscured game screen.");
 
 double CalculateEpsilon(const int iter) {
   if (iter < FLAGS_explore) {
@@ -79,14 +79,18 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
   dqn::Episode episode;
   const ALEScreen* screen = &ale.getScreen();
   dqn::FrameDataSp current_frame = dqn::PreprocessScreen(*screen);
-  if (FLAGS_obscure) { dqn.ObscureScreen(current_frame); }
+  if (FLAGS_obscure_size > 0) {
+    dqn.ObscureScreen(current_frame, FLAGS_obscure_size);
+  }
   auto total_score = 0.0;
   bool first_action = true;
   for (auto frame = 0; !ale.game_over(); ++frame) {
     if (!update) { // The next screen will already be populated if doing updates
       screen = &ale.getScreen();
       current_frame = dqn::PreprocessScreen(*screen);
-      if (FLAGS_obscure) { dqn.ObscureScreen(current_frame); }
+      if (FLAGS_obscure_size > 0) {
+        dqn.ObscureScreen(current_frame, FLAGS_obscure_size);
+      }
     }
     past_frames.push_back(current_frame);
     if (!FLAGS_save_screen.empty()) {
@@ -101,21 +105,17 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
           std::to_string(binary_save_num++) + ".bin";
       SaveInputFrame(*current_frame, fname);
     }
-    if (past_frames.size() < FLAGS_frames_per_timestep) {
-      // If there are not past frames enough for DQN input, just select NOOP
-      for (int i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
-        total_score += ale.act(PLAYER_A_NOOP);
-      }
-      continue;
-    }
     while (past_frames.size() > FLAGS_frames_per_timestep) {
       past_frames.pop_front();
     }
-    CHECK_EQ(past_frames.size(), FLAGS_frames_per_timestep);
-    dqn::InputFrames input_frames(FLAGS_frames_per_timestep);
-    std::copy(past_frames.begin(), past_frames.end(), input_frames.begin());
-    const auto action = dqn.SelectAction(input_frames, epsilon, !first_action);
-    first_action = false;
+    CHECK_LE(past_frames.size(), FLAGS_frames_per_timestep);
+    Action action = PLAYER_A_NOOP;
+    if (past_frames.size() == FLAGS_frames_per_timestep) {
+      dqn::InputFrames input_frames(FLAGS_frames_per_timestep);
+      std::copy(past_frames.begin(), past_frames.end(), input_frames.begin());
+      action = dqn.SelectAction(input_frames, epsilon, !first_action);
+      first_action = false;
+    }
     auto immediate_score = 0.0;
     for (auto i = 0; i < FLAGS_skip_frame + 1 && !ale.game_over(); ++i) {
       immediate_score += ale.act(action);
@@ -134,7 +134,9 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
       // Get the next screen
       screen = &ale.getScreen();
       dqn::FrameDataSp next_frame = dqn::PreprocessScreen(*screen);
-      if (FLAGS_obscure) { dqn.ObscureScreen(next_frame); }
+      if (FLAGS_obscure_size > 0) {
+        dqn.ObscureScreen(current_frame, FLAGS_obscure_size);
+      }
       // Add the current transition to replay memory
       const auto transition = ale.game_over() ?
           dqn::Transition(current_frame, action, reward, boost::none) :

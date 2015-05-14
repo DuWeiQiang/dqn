@@ -139,15 +139,17 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
   return screen;
 }
 
-void DQN::ObscureScreen(FrameDataSp& screen) {
+void DQN::ObscureScreen(FrameDataSp& screen, int obscure_size) {
+  CHECK_GT(obscure_size, 0);
+  CHECK_LT(obscure_size, kCroppedFrameSize);
   const int startx = std::uniform_int_distribution<int>
-      (0, kCroppedFrameSize - 1 - kObscuredFrameSize)(random_engine);
+      (0, kCroppedFrameSize - 1 - obscure_size)(random_engine);
   const int starty = std::uniform_int_distribution<int>
-      (0, kCroppedFrameSize - 1 - kObscuredFrameSize)(random_engine);
+      (0, kCroppedFrameSize - 1 - obscure_size)(random_engine);
   for (auto y = 0; y < kCroppedFrameSize; ++y) {
     for (auto x = 0; x < kCroppedFrameSize; ++x) {
-      if (y >= starty && y < starty + kObscuredFrameSize &&
-          x >= startx && x < startx + kObscuredFrameSize) {
+      if (y >= starty && y < starty + obscure_size &&
+          x >= startx && x < startx + obscure_size) {
         ;
       } else {
         (*screen)[y * kCroppedFrameSize + x] = 0;
@@ -763,44 +765,40 @@ int DQN::UpdateSequential() {
     CloneNet(*test_net_);
     last_clone_iter_ = current_iteration();
   }
-
   const auto frames_blob = net_->blob_by_name(train_frames_blob_name);
   const auto cont_blob = net_->blob_by_name(cont_blob_name);
   const auto filter_blob = net_->blob_by_name(filter_blob_name);
   const auto target_blob = net_->blob_by_name(target_blob_name);
-
   // Randomly select unique episodes to learn from
   std::vector<int> ep_inds(replay_memory_.size());
   std::iota(ep_inds.begin(), ep_inds.end(), 0);
-  std::random_shuffle(ep_inds.begin(), ep_inds.end());
+  auto func = [this](int i){ return random_engine() % i; };
+  std::random_shuffle(ep_inds.begin(), ep_inds.end(), func);
   if (ep_inds.size() > minibatch_size_) {
     ep_inds.resize(minibatch_size_);
   }
-
-  bool active_episodes = ep_inds.size();
-  int t = 0;
-  int update_step = 0;
-  std::vector<std::deque<dqn::FrameDataSp> > past_frames(ep_inds.size());
+  int active_episodes = ep_inds.size();
+  int t = 0; // Timestep
+  int update_step = 0; // Number of times Step has been called
+  std::vector<std::deque<FrameDataSp> > past_frames(ep_inds.size());
   while (active_episodes > 0) {
     std::vector<float> frame_input(frame_input_size_TRAIN_, 0.0f);
     std::vector<float> filter_input(filter_input_size_TRAIN_, 0.0f);
     std::vector<float> target_input(target_input_size_TRAIN_, 0.0f);
     std::vector<float> cont_input(cont_input_size_TRAIN_, 1.0f);
-    if (t == 0) { // Cont is zeroed for the first step of the episode
+    if (t == 0) { // Cont is zeroed only for the first step of the episode
       for (int n = 0; n < minibatch_size_; ++n) {
         cont_input[cont_blob->offset(0,n,0,0)] = 0.0f;
       }
     }
+    // Load a data batch of size unroll_
     for (int i = 0; i < unroll_; ++i, ++t) {
-      // FrameVec next_frames;
-      // next_frames.reserve(ep_inds.size());
       active_episodes = 0;
       for (int n = 0; n < ep_inds.size(); ++n) {
         const Episode& episode = replay_memory_[ep_inds[n]];
-        auto& frame_deque = past_frames[n];
+        std::deque<FrameDataSp>& frame_deque = past_frames[n];
         if (t < episode.size() && std::get<3>(episode[t])) {
           active_episodes++;
-          // next_frames.emplace_back(std::get<3>(episode[t]).get());
           frame_deque.push_back(std::get<3>(episode[t]).get());
           while (frame_deque.size() > frames_per_timestep_) {
             frame_deque.pop_front();

@@ -18,7 +18,6 @@ constexpr auto kRawFrameWidth        = 160;
 constexpr auto kCroppedFrameSize     = 84;
 constexpr auto kCroppedFrameDataSize = kCroppedFrameSize * kCroppedFrameSize;
 constexpr auto kOutputCount          = 18;
-constexpr auto kObscuredFrameSize    = 42;
 
 constexpr auto frames_layer_name = "frames_input_layer";
 constexpr auto cont_layer_name   = "cont_input_layer";
@@ -121,8 +120,8 @@ public:
   void Benchmark(int iterations=1000);
 
   // Obscures the screen by zeroing everything except for a randomly
-  // selected patch of size kObscuredScreenSize x kObscuredScreenSize.
-  void ObscureScreen(FrameDataSp& screen);
+  // selected patch of size obscure_size x obscure_size.
+  void ObscureScreen(FrameDataSp& screen, int obscure_size);
 
 protected:
   // Clone the given net and store the result in clone_net_
