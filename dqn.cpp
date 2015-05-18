@@ -1,4 +1,5 @@
 #include "dqn.hpp"
+#include <math.h>
 #include <algorithm>
 #include <iostream>
 #include <cassert>
@@ -766,7 +767,7 @@ int DQN::UpdateSequential() {
     last_clone_iter_ = current_iteration();
   }
   const auto frames_blob = net_->blob_by_name(train_frames_blob_name);
-  const auto cont_blob = net_->blob_by_name(cont_blob_name);
+  const auto cont_blob   = net_->blob_by_name(cont_blob_name);
   const auto filter_blob = net_->blob_by_name(filter_blob_name);
   const auto target_blob = net_->blob_by_name(target_blob_name);
   // Randomly select unique episodes to learn from
@@ -777,129 +778,108 @@ int DQN::UpdateSequential() {
   if (ep_inds.size() > minibatch_size_) {
     ep_inds.resize(minibatch_size_);
   }
-  int active_episodes = ep_inds.size();
-  int t = 0; // Timestep
-  int update_step = 0; // Number of times Step has been called
-  std::vector<std::deque<FrameDataSp> > past_frames(ep_inds.size());
-  while (active_episodes > 0) {
+  int max_episode_length = 0;
+  for (auto i : ep_inds) {
+    if (replay_memory_[i].size() > max_episode_length) {
+      max_episode_length = replay_memory_[i].size();
+    }
+  }
+  int t = frames_per_timestep_-1; // Timestep to start at
+  const int n_updates = int(ceil((max_episode_length-t)/float(unroll_)));
+  const int batch = ep_inds.size();
+  for (int update = 0; update < n_updates; ++update, t += unroll_) {
+    InputFramesBatch frames_batch(batch);
     std::vector<float> frame_input(frame_input_size_TRAIN_, 0.0f);
     std::vector<float> filter_input(filter_input_size_TRAIN_, 0.0f);
     std::vector<float> target_input(target_input_size_TRAIN_, 0.0f);
     std::vector<float> cont_input(cont_input_size_TRAIN_, 1.0f);
-    if (t == 0) { // Cont is zeroed only for the first step of the episode
+    if (update == 0) { // Cont is zeroed only for the first step of the episode
       for (int n = 0; n < minibatch_size_; ++n) {
         cont_input[cont_blob->offset(0,n,0,0)] = 0.0f;
       }
     }
-    // Load a data batch of size unroll_
-    for (int i = 0; i < unroll_; ++i, ++t) {
-      active_episodes = 0;
-      for (int n = 0; n < ep_inds.size(); ++n) {
-        const Episode& episode = replay_memory_[ep_inds[n]];
-        std::deque<FrameDataSp>& frame_deque = past_frames[n];
-        if (t < episode.size() && std::get<3>(episode[t])) {
-          active_episodes++;
-          frame_deque.push_back(std::get<3>(episode[t]).get());
-          while (frame_deque.size() > frames_per_timestep_) {
-            frame_deque.pop_front();
-          }
-        } else {
-          frame_deque.clear();
+    // Load the frames necessary for a full update
+    for (int n = 0; n < batch; ++n) {
+      Episode& episode = replay_memory_[ep_inds[n]];
+      InputFrames& frames = frames_batch[n];
+      int ts = t - (frames_per_timestep_-1);
+      for (int i=0; i<=frames_per_forward_ && ts<episode.size(); ++i, ++ts) {
+        FrameDataSp& frame = std::get<0>(episode[ts]);
+        frames.push_back(frame);
+        if (i < frames_per_forward_) {
+          std::copy(frame->begin(), frame->end(),
+                    frame_input.begin() + frames_blob->offset(n,i,0,0));
         }
       }
-      if (t < frames_per_timestep_) {
-        continue;
-      }
-      // Get the next state QValues
-      InputFramesBatch past_frames_vec;
-      for (int n = 0; n < ep_inds.size(); ++n) {
-        const auto& frame_deque = past_frames[n];
-        if (!frame_deque.empty()) {
-          CHECK_EQ(frame_deque.size(), frames_per_timestep_);
-          InputFrames input_frames(frame_deque.size());
-          std::copy(frame_deque.begin(), frame_deque.end(),
-                    input_frames.begin());
-          past_frames_vec.emplace_back(input_frames);
+    }
+    // Generate unroll_ batches of next-state q-values
+    std::vector<std::vector<ActionValue> > qvals(unroll_);
+    for (int i = 0; i < unroll_; ++i) {
+      InputFramesBatch test_frames_batch;
+      for (int n = 0; n < batch; ++n) {
+        const InputFrames& frames = frames_batch[n];
+        if (frames.size() >= i + frames_per_timestep_ + 1) {
+          InputFrames test_frames(frames_per_timestep_);
+          for (int f = 0; f < frames_per_timestep_; ++f) {
+            test_frames[f] = frames[i + f + 1];
+          }
+          test_frames_batch.emplace_back(test_frames);
         }
       }
       std::vector<ActionValue> actions_and_values =
-          SelectActionGreedily(*clone_net_, past_frames_vec, t > 0);
-      // Generate the targets/filter/frames inputs
+        SelectActionGreedily(*clone_net_, test_frames_batch, update>0 || i>0);
+      qvals[i] = actions_and_values;
+    }
+    // Generate the target/filter inputs
+    for (int i = 0; i < unroll_; ++i) {
       int target_value_idx = 0;
-      for (int n = 0; n < ep_inds.size(); ++n) {
+      for (int n = 0; n < batch; ++n) {
         const Episode& episode = replay_memory_[ep_inds[n]];
-        if (t < episode.size()) {
-          const auto& transition = episode[t];
+        if (t + i < episode.size()) {
+          const auto& transition = episode[t + i];
           const int action = static_cast<int>(std::get<1>(transition));
           CHECK_LT(action, kOutputCount);
           const float reward = std::get<2>(transition);
           CHECK(reward >= -1.0 && reward <= 1.0);
           const float target = std::get<3>(transition) ?
-              reward + gamma_ * actions_and_values[target_value_idx++].second :
+              reward + gamma_ * qvals[i][target_value_idx++].second :
               reward;
-          // if (std::get<3>(transition)) {
-          //   LOG(INFO) << "t: "<< t << " i: " << i << " action: " << action
-          //             << " target: " << target << " reward: " << reward
-          //             << " maxq: " << actions_and_values[target_value_idx-1].second
-          //             << " maxact: " << actions_and_values[target_value_idx-1].first;
-          // }
           CHECK(!std::isnan(target));
           filter_input[filter_blob->offset(i,n,action,0)] = 1;
           target_input[target_blob->offset(i,n,action,0)] = target;
-          const auto& frame = std::get<0>(transition);
-          std::copy(frame->begin(), frame->end(),
-                    frame_input.begin() + frames_blob->offset(n,i,0,0));
         }
       }
-      CHECK_EQ(target_value_idx, actions_and_values.size());
+      CHECK_EQ(target_value_idx, qvals[i].size());
     }
     InputDataIntoLayers(*net_, frame_input.data(), cont_input.data(),
                         target_input.data(), filter_input.data());
-    // LOG(INFO) << "Forward on main net";
-    // net_->ForwardPrefilled(nullptr);
-    // std::vector<ActionValue> results;
-    // results.reserve(ep_inds.size());
-    // const auto q_values_blob = net_->blob_by_name("q_values");
-    // CHECK(q_values_blob);
-    // for (int z = 0; z < 2; ++z) {
-    //   for (int i = 0; i < ep_inds.size(); ++i) {
-    //     // Get the Q-values from the net: unroll_*minibatch_size_*kOutputCount
-    //     const auto action_evaluator = [&](Action action) {
-    //       const auto q = q_values_blob->data_at(z, i, static_cast<int>(action), 0);
-    //       CHECK(!std::isnan(q));
-    //       return q;
-    //     };
-    //     std::vector<float> q_values(legal_actions_.size());
-    //     std::transform(legal_actions_.begin(), legal_actions_.end(),
-    //                    q_values.begin(), action_evaluator);
-    //     PrintQValues(q_values, legal_actions_);
-    //   }
-    // }
-    // exit(0);
     solver_->Step(1);
-    update_step++;
   }
-  return update_step;
+  return n_updates;
 }
 
-void DQN::Benchmark(int iterations) {
+void DQN::Benchmark(int iterations, bool random_updates) {
   UpdateRandom();
   while (memory_episodes() < minibatch_size_) {
     RememberEpisode(replay_memory_[0]);
   }
-
   LOG(INFO) << "*** Benchmark begins ***";
-  LOG(INFO) << "Testing for " << iterations << " iterations.";
+  if (random_updates) {
+    LOG(INFO) << "Testing Random Updates for " << iterations << " iterations.";
+  } else {
+    LOG(INFO) << "Testing Sequential Updates.";
+  }
   caffe::Timer total_timer;
   total_timer.Start();
+  int n_updates = 0;
   caffe::Timer update_timer;
   update_timer.Start();
-  for (int j = 0; j < iterations; ++j) {
-    UpdateRandom();
+  while (n_updates < iterations) {
+    n_updates += random_updates ? UpdateRandom() : UpdateSequential();
   }
   update_timer.Stop();
   LOG(INFO) << "Average Update: " << update_timer.MilliSeconds() /
-    iterations << " ms.";
+    n_updates << " ms.";
   CHECK(memory_size() > frames_per_forward_);
   InputFrames frames;
   for (int i = 0; i < frames_per_forward_; ++i) {
@@ -1027,6 +1007,13 @@ void DQN::CloneNet(caffe::Net<float>& net) {
   }
 }
 
+int DQN::GetLastEpisodeSize() {
+  if (replay_memory_.empty()) {
+    return 0;
+  }
+  return replay_memory_.back().size();
+}
+
 void DQN::InputDataIntoLayers(caffe::Net<float>& net,
                               float* frames_input,
                               float* cont_input,
@@ -1104,7 +1091,7 @@ void DQN::LoadReplayMemory(const std::string& filename) {
   boost::iostreams::filtering_istream in;
   in.push(boost::iostreams::gzip_decompressor());
   in.push(ifile);
-  int num_episodes = memory_size();
+  int num_episodes;
   in.read((char*)&num_episodes, sizeof(int));
   replay_memory_.resize(num_episodes);
   for (int i = 0; i < num_episodes; ++i) {

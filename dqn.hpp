@@ -39,7 +39,7 @@ using FrameDataSp      = std::shared_ptr<FrameData>;
 using InputFrames      = std::vector<FrameDataSp>;
 using InputFramesBatch = std::vector<InputFrames>;
 using Transition       = std::tuple<FrameDataSp, Action, float,
-                                boost::optional<FrameDataSp> >;
+                                    boost::optional<FrameDataSp> >;
 using Episode          = std::vector<Transition>;
 using ReplayMemory     = std::deque<Episode>;
 using MemoryLayer      = caffe::MemoryDataLayer<float>;
@@ -78,7 +78,7 @@ public:
   // snapshot_prefix_iter_N.[caffemodel|solverstate|replaymem]. Optionally
   // removes snapshots that share the same prefix but have a lower
   // iteration number.
-  void Snapshot(const string& snapshot_prefix, bool remove_old=false,
+  void Snapshot(const std::string& snapshot_prefix, bool remove_old=false,
                 bool snapshot_memory=true);
 
   // Select an action by epsilon-greedy. If cont is false, LSTM state
@@ -117,11 +117,18 @@ public:
 
   void CloneTestNet() { CloneNet(*test_net_); }
 
-  void Benchmark(int iterations=1000);
+  // Benchmark the speed of the learning by doing some number of
+  // iterations of updates and selects. random_updates toggles
+  // random/sequential updating.
+  void Benchmark(int iterations, bool random_updates);
 
   // Obscures the screen by zeroing everything except for a randomly
   // selected patch of size obscure_size x obscure_size.
   void ObscureScreen(FrameDataSp& screen, int obscure_size);
+
+  // Returns the number of transitions in the last episode added to
+  // the memory or 0 if the memory is empty.
+  int GetLastEpisodeSize();
 
 protected:
   // Clone the given net and store the result in clone_net_

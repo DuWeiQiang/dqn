@@ -37,6 +37,7 @@ DEFINE_string(weights, "", "The pretrained weights load (*.caffemodel).");
 DEFINE_string(snapshot, "", "The solver state to load (*.solverstate).");
 DEFINE_bool(resume, true, "Automatically resume training from latest snapshot.");
 DEFINE_bool(evaluate, false, "Evaluation mode: only playing a game, no updates");
+DEFINE_bool(update_random, true, "If true performs random updates. Otherwise sequential.");
 DEFINE_double(evaluate_with_epsilon, .05, "Epsilon value to be used in evaluation mode");
 DEFINE_int32(evaluate_freq, 50000, "Frequency (steps) between evaluations");
 DEFINE_int32(repeat_games, 10, "Number of games played in evaluation mode");
@@ -142,7 +143,7 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
           dqn::Transition(current_frame, action, reward, boost::none) :
           dqn::Transition(current_frame, action, reward, next_frame);
       episode.push_back(transition);
-      if (dqn.memory_size() > FLAGS_memory_threshold
+      if (FLAGS_update_random && dqn.memory_size() > FLAGS_memory_threshold
           && frame % FLAGS_update_frequency == 0) {
         dqn.UpdateRandom();
       }
@@ -186,6 +187,7 @@ int main(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
   google::InstallFailureSignalHandler();
+  fLI::FLAGS_logbuflevel = -1;
   if (FLAGS_evaluate) {
     google::LogToStderr();
   }
@@ -301,7 +303,7 @@ int main(int argc, char** argv) {
 
   if (FLAGS_time) {
     auto score = PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, true);
-    dqn.Benchmark();
+    dqn.Benchmark(1000, FLAGS_update_random);
     return 0;
   }
 
@@ -321,6 +323,7 @@ int main(int argc, char** argv) {
               << ", iter = " << iter
               << ", replay_mem_size = " << dqn.memory_size();
     episode++;
+
     if ((score > best_score && iter >= FLAGS_explore) ||
         dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
       double avg_score = Evaluate(ale, dqn);
@@ -334,6 +337,17 @@ int main(int argc, char** argv) {
       }
       dqn.Snapshot(save_path.native(), true, true);
       last_eval_iter = dqn.current_iteration();
+    }
+
+    if (!FLAGS_update_random && dqn.memory_size() > FLAGS_memory_threshold) {
+      static long transitions = 0;
+      static long updates = 0;
+      transitions += dqn.GetLastEpisodeSize();
+      float update_ratio = transitions / float(updates);
+      while (update_ratio >= FLAGS_update_frequency) {
+        updates += dqn.UpdateSequential();
+        update_ratio = transitions / float(updates);
+      }
     }
   }
   if (dqn.current_iteration() >= last_eval_iter) {
