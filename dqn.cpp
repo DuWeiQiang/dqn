@@ -140,23 +140,27 @@ FrameDataSp PreprocessScreen(const ALEScreen& raw_screen) {
   return screen;
 }
 
-void DQN::ObscureScreen(FrameDataSp& screen, int obscure_size) {
-  CHECK_GT(obscure_size, 0);
-  CHECK_LT(obscure_size, kCroppedFrameSize);
-  const int startx = std::uniform_int_distribution<int>
-      (0, kCroppedFrameSize - 1 - obscure_size)(random_engine);
-  const int starty = std::uniform_int_distribution<int>
-      (0, kCroppedFrameSize - 1 - obscure_size)(random_engine);
-  for (auto y = 0; y < kCroppedFrameSize; ++y) {
-    for (auto x = 0; x < kCroppedFrameSize; ++x) {
-      if (y >= starty && y < starty + obscure_size &&
-          x >= startx && x < startx + obscure_size) {
-        ;
-      } else {
-        (*screen)[y * kCroppedFrameSize + x] = 0;
-      }
-    }
+void DQN::ObscureScreen(FrameDataSp& screen, double obscure_prob) {
+  CHECK(obscure_prob >= 0 && obscure_prob <= 1);
+  if (std::uniform_real_distribution<>(0.0, 1.0)(random_engine) < obscure_prob) {
+    std::fill(screen->begin(), screen->end(), 0);
   }
+  // CHECK_GT(obscure_size, 0);
+  // CHECK_LT(obscure_size, kCroppedFrameSize);
+  // const int startx = std::uniform_int_distribution<int>
+  //     (0, kCroppedFrameSize - 1 - obscure_size)(random_engine);
+  // const int starty = std::uniform_int_distribution<int>
+  //     (0, kCroppedFrameSize - 1 - obscure_size)(random_engine);
+  // for (auto y = 0; y < kCroppedFrameSize; ++y) {
+  //   for (auto x = 0; x < kCroppedFrameSize; ++x) {
+  //     if (y >= starty && y < starty + obscure_size &&
+  //         x >= startx && x < startx + obscure_size) {
+  //       ;
+  //     } else {
+  //       (*screen)[y * kCroppedFrameSize + x] = 0;
+  //     }
+  //   }
+  // }
 }
 
 void PrintQValues(const std::vector<float>& q_values, const ActionVect& actions) {

@@ -122,9 +122,8 @@ public:
   // random/sequential updating.
   void Benchmark(int iterations, bool random_updates);
 
-  // Obscures the screen by zeroing everything except for a randomly
-  // selected patch of size obscure_size x obscure_size.
-  void ObscureScreen(FrameDataSp& screen, int obscure_size);
+  // Obscures the screen by zeroing everything with a given probability.
+  void ObscureScreen(FrameDataSp& screen, double obscure_prob);
 
   // Returns the number of transitions in the last episode added to
   // the memory or 0 if the memory is empty.
