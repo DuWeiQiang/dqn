@@ -156,9 +156,7 @@ void DQN::RedisplayScreen(FrameDataSp& screen, double prob) {
   if (std::uniform_real_distribution<>(0.0, 1.0)(random_engine) < prob) {
     std::copy(last_displayed_screen_.begin(), last_displayed_screen_.end(),
               screen->begin());
-    LOG(INFO) << "Redisplaying";
   } else {
-    LOG(INFO) << "No redisplay";
     std::copy(screen->begin(), screen->end(), last_displayed_screen_.begin());
   }
 }
