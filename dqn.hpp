@@ -124,6 +124,8 @@ public:
 
   // Obscures the screen by zeroing everything with a given probability.
   void ObscureScreen(FrameDataSp& screen, double obscure_prob);
+  // Re-Display the last seen screen with probability prob
+  void RedisplayScreen(FrameDataSp& screen, double prob);
 
   // Returns the number of transitions in the last episode added to
   // the memory or 0 if the memory is empty.
@@ -174,6 +176,8 @@ protected:
   NetSp clone_net_; // Clone used to generate targets.
   int last_clone_iter_; // Iteration in which the net was last cloned
   std::mt19937 random_engine;
+
+  std::vector<uint8_t> last_displayed_screen_; // Used in RedisplayScreen
 };
 
 /**

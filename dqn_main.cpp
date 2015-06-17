@@ -45,6 +45,7 @@ DEFINE_string(solver, "recurrent_solver.prototxt", "Solver parameter file (*.pro
 DEFINE_bool(time, false, "Time the network and exit");
 DEFINE_bool(unroll1_is_lstm, false, "Use LSTM layer instead of IP when unroll=1");
 DEFINE_double(obscure_prob, 0, "Probability of blanking game screen.");
+DEFINE_double(redisplay_prob, 0, "Probability of redisplaying the last game screen.");
 
 double CalculateEpsilon(const int iter) {
   if (iter < FLAGS_explore) {
@@ -88,6 +89,7 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
       screen = &ale.getScreen();
       current_frame = dqn::PreprocessScreen(*screen);
       dqn.ObscureScreen(current_frame, FLAGS_obscure_prob);
+      dqn.RedisplayScreen(current_frame, FLAGS_redisplay_prob);
     }
     past_frames.push_back(current_frame);
     if (!FLAGS_save_screen.empty()) {
@@ -131,7 +133,8 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
       // Get the next screen
       screen = &ale.getScreen();
       dqn::FrameDataSp next_frame = dqn::PreprocessScreen(*screen);
-      dqn.ObscureScreen(current_frame, FLAGS_obscure_prob);
+      dqn.ObscureScreen(next_frame, FLAGS_obscure_prob);
+      dqn.RedisplayScreen(next_frame, FLAGS_redisplay_prob);
       // Add the current transition to replay memory
       const auto transition = ale.game_over() ?
           dqn::Transition(current_frame, action, reward, boost::none) :
@@ -154,11 +157,11 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
 /**
  * Evaluate the current player
  */
-double Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
-  // std::vector<double> scores = PlayParallelEpisodes(
-  //     dqn, FLAGS_evaluate_with_epsilon, false);
+double Evaluate(ALEInterface& ale, dqn::DQN& dqn, double* std_dev) {
   std::vector<double> scores;
-  scores.push_back(PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, false));
+  for (int i=0; i<FLAGS_repeat_games; ++i) {
+    scores.push_back(PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, false));
+  }
   double total_score = 0.0;
   for (auto score : scores) {
     total_score += score;
@@ -170,6 +173,9 @@ double Evaluate(ALEInterface& ale, dqn::DQN& dqn) {
   }
   stddev = sqrt(stddev / static_cast<double>(FLAGS_repeat_games - 1));
   LOG(INFO) << "Evaluation avg_score = " << avg_score << " std = " << stddev;
+  if (std_dev != NULL) {
+    *std_dev = stddev;
+  }
   return avg_score;
 }
 
@@ -290,7 +296,7 @@ int main(int argc, char** argv) {
       auto score = PlayOneEpisode(ale, dqn, FLAGS_evaluate_with_epsilon, false);
       LOG(INFO) << "Score " << score;
     } else {
-      Evaluate(ale, dqn);
+      Evaluate(ale, dqn, NULL);
     }
     return 0;
   }
@@ -320,13 +326,14 @@ int main(int argc, char** argv) {
 
     if ((score > best_score && iter >= FLAGS_explore) ||
         dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
-      double avg_score = Evaluate(ale, dqn);
+      double std_dev;
+      double avg_score = Evaluate(ale, dqn, &std_dev);
       if (avg_score > best_score) {
         LOG(INFO) << "iter " << dqn.current_iteration()
-                  << " New High Score: " << avg_score;
+                  << " New High Score: " << avg_score << " std: " << std_dev;
         best_score = avg_score;
         std::string fname = save_path.native() + "_HiScore" +
-            std::to_string(int(avg_score));
+            std::to_string(avg_score) + "std" + std::to_string(std_dev);
         dqn.Snapshot(fname, false, false);
       }
       dqn.Snapshot(save_path.native(), true, true);
@@ -345,7 +352,7 @@ int main(int argc, char** argv) {
     }
   }
   if (dqn.current_iteration() >= last_eval_iter) {
-    Evaluate(ale, dqn);
+    Evaluate(ale, dqn, NULL);
     dqn.Snapshot(save_path.native(), true, true);
   }
 }

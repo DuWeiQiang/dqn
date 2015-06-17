@@ -366,24 +366,27 @@ def test():
   opt, res = optimize_filter('conv1_layer', 10)
   vis_square(opt, title='Optimized inputs', fname='opt10.png')
 
-seed(123)
-prototxt = 'gen_net.prototxt'
-snapshot = 'state/singleTower_cheat_lrmult05_u2f2_pong_iter_1000000.caffemodel'
-snapshot_prefix = snapshot.split('_iter_')[0]
-phase = caffe.TRAIN
-net = caffe.Net(prototxt, snapshot, phase)
-image_dir = 'screen/'
-save_dir = 'pong_xray/'
-print 'net.blobs:'
-for k, v in net.blobs.items():
-  d = v.data
-  print k, d.shape
-print 'net.params:'
-for k, v in net.params.items():
-  w = v[0].data
-  b = v[1].data
-  print k, '[Weights]', w.shape, '[bias]', b.shape
-input_layer_name = net.blobs.keys()[0]
-frames = run_forward(image_dir, input_layer_name)
-xray(net, save_dir)
+# seed(123)
+# prototxt = 'gen_net.prototxt'
+# snapshot = 'state/singleTower_cheat_lrmult05_u2f2_pong_iter_1000000.caffemodel'
+# snapshot_prefix = snapshot.split('_iter_')[0]
+# phase = caffe.TRAIN
+# net = caffe.Net(prototxt, snapshot, phase)
+# image_dir = 'screen/'
+# save_dir = 'pong_xray/'
+# print 'net.blobs:'
+# for k, v in net.blobs.items():
+#   d = v.data
+#   print k, d.shape
+# print 'net.params:'
+# for k, v in net.params.items():
+#   w = v[0].data
+#   b = v[1].data
+#   print k, '[Weights]', w.shape, '[bias]', b.shape
+# input_layer_name = net.blobs.keys()[0]
+# frames = run_forward(image_dir, input_layer_name)
+# xray(net, save_dir)
 # fmri(snapshot_prefix, save_dir, net_prototxt=prototxt, phase=caffe.TEST)
+for i in xrange(85,200):
+  plt.imshow(np.fromfile(open('screen/%d.bin'%i,'rb'), dtype=np.uint8).reshape(84,84).astype(np.float32))
+  plt.savefig('redisplay/%04d.jpg'%i)
