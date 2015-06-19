@@ -508,10 +508,10 @@ int ParseIterFromSnapshot(const std::string& snapshot) {
   return std::stoi(snapshot.substr(start+1, end-start-1));
 }
 
-int ParseScoreFromSnapshot(const std::string& snapshot) {
-  unsigned start = snapshot.find("_HiScore");
-  unsigned end = snapshot.find("_iter_");
-  return std::stoi(snapshot.substr(start+8, end-start-1));
+float ParseScoreFromSnapshot(const std::string& snapshot) {
+  unsigned start = snapshot.find("_HiScore_");
+  unsigned end = snapshot.find("_std_");
+  return std::stof(snapshot.substr(start+9, end-start-9));
 }
 
 void RemoveSnapshots(const std::string& snapshot_prefix, int min_iter) {
@@ -550,13 +550,16 @@ std::string FindLatestSnapshot(const std::string& snapshot_prefix) {
   return latest;
 }
 
-int FindHiScore(const std::string& snapshot_prefix) {
+std::vector<std::string> GetHiScoreSnapshots(const std::string& snapshot_prefix) {
+  std::string regexp(snapshot_prefix + "_HiScore.*_iter_[0-9]+\\.(caffemodel|solverstate)");
+  return FilesMatchingRegexp(regexp);
+}
+
+float FindHiScore(const std::string& snapshot_prefix) {
   using namespace boost::filesystem;
-  std::string regexp(snapshot_prefix + "_HiScore[-]?[0-9]+_iter_[0-9]+\\.caffemodel");
-  std::vector<std::string> matching_files = FilesMatchingRegexp(regexp);
-  int max_score = std::numeric_limits<int>::lowest();
-  for (const std::string& f : matching_files) {
-    int score = ParseScoreFromSnapshot(f);
+  float max_score = std::numeric_limits<float>::lowest();
+  for (const std::string& f : GetHiScoreSnapshots(snapshot_prefix)) {
+    float score = ParseScoreFromSnapshot(f);
     if (score > max_score) {
       max_score = score;
     }
@@ -623,6 +626,25 @@ std::vector<std::string> FilesMatchingRegexp(const std::string& regexp) {
     }
   }
   return matching_files;
+}
+
+void DQN::SnapshotHiScore(const std::string& snapshot_prefix,
+                          double avg_score, double std_dev,
+                          bool remove_old) {
+  std::stringstream out;
+  out.precision(1);
+  out << std::fixed << snapshot_prefix << "_HiScore_"  << avg_score << "_std_" << std_dev;
+  std::string high_score_prefix = out.str();
+  Snapshot(high_score_prefix, false, false);
+  if (remove_old) {
+    for (const std::string f : GetHiScoreSnapshots(snapshot_prefix)) {
+      if (f.substr(0, high_score_prefix.size()) != high_score_prefix) {
+        LOG(INFO) << "Removing " << f;
+        CHECK(boost::filesystem::is_regular_file(f));
+        boost::filesystem::remove(f);
+      }
+    }
+  }
 }
 
 void DQN::Snapshot(const std::string& snapshot_prefix, bool remove_old,

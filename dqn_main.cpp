@@ -180,7 +180,7 @@ double Evaluate(ALEInterface& ale, dqn::DQN& dqn, double* std_dev) {
 }
 
 int main(int argc, char** argv) {
- std::string usage(argv[0]);
+  std::string usage(argv[0]);
   usage.append(" -rom rom -[evaluate|save path]");
   gflags::SetUsageMessage(usage);
   gflags::SetVersionString("0.1");
@@ -324,17 +324,14 @@ int main(int argc, char** argv) {
               << ", replay_mem_size = " << dqn.memory_size();
     episode++;
 
-    if ((score > best_score && iter >= FLAGS_explore) ||
-        dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
+    if (dqn.current_iteration() >= last_eval_iter + FLAGS_evaluate_freq) {
       double std_dev;
       double avg_score = Evaluate(ale, dqn, &std_dev);
       if (avg_score > best_score) {
         LOG(INFO) << "iter " << dqn.current_iteration()
                   << " New High Score: " << avg_score << " std: " << std_dev;
         best_score = avg_score;
-        std::string fname = save_path.native() + "_HiScore" +
-            std::to_string(avg_score) + "std" + std::to_string(std_dev);
-        dqn.Snapshot(fname, false, false);
+        dqn.SnapshotHiScore(save_path.native(), avg_score, std_dev);
       }
       dqn.Snapshot(save_path.native(), true, true);
       last_eval_iter = dqn.current_iteration();

@@ -81,6 +81,12 @@ public:
   void Snapshot(const std::string& snapshot_prefix, bool remove_old=false,
                 bool snapshot_memory=true);
 
+  // A specialized method for producing a high-score
+  // snapshot. Optionally remove older HiScore snapshots
+  void SnapshotHiScore(const std::string& snapshot_prefix,
+                       double avg_score, double std_dev,
+                       bool remove_old=true);
+
   // Select an action by epsilon-greedy. If cont is false, LSTM state
   // will be reset. cont should be true only at start of new episodes.
   Action SelectAction(const InputFrames& frames, double epsilon, bool cont);
@@ -187,7 +193,7 @@ std::vector<std::string> FilesMatchingRegexp(const std::string& regexp);
 
 /**
  * Removes snapshots starting with snapshot_prefix that have an
- * iteration less than min_iter.
+ * iteration less than min_iter. Does not remove high-score snapshots.
  */
 void RemoveSnapshots(const std::string& snapshot_prefix, int min_iter);
 
@@ -200,9 +206,19 @@ void RemoveSnapshots(const std::string& snapshot_prefix, int min_iter);
 std::string FindLatestSnapshot(const std::string& snapshot_prefix);
 
 /**
+ * Returns a list of high score snapshots
+ */
+std::vector<std::string> GetHiScoreSnapshots(const std::string& snapshot_prefix);
+
+/**
  * Look for the best HiScore matching the given snapshot prefix
  */
-int FindHiScore(const std::string& snapshot_prefix);
+float FindHiScore(const std::string& snapshot_prefix);
+
+/**
+ * Remove all high-score snapshots matching the given snapshot prefix
+ */
+void RemoveHiScoreSnapshots(const std::string& snapshot_prefix);
 
 /**
  * Preprocess an ALE screen (downsampling & grayscaling). Optionally
