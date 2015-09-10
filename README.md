@@ -1,24 +1,14 @@
-DQN-in-the-Caffe
+Recurrent DQN-in-the-Caffe
 ================
 
-DQN-in-the-Caffe is an implementation of Deep Q-Network using Caffe.
+This code implements a recurrent LSTM version of DQN.
 
-Requirements
---
+To run this code, please first download and compile the associated Caffe at:
 
-- Caffe (with two pull requests and minor fixes on them)
- - https://github.com/BVLC/caffe/pull/1228 for step execution of solving
- - https://github.com/BVLC/caffe/pull/1122 for AdaDelta solver
- - At the moment my forked repository's dqn branch https://github.com/muupan/caffe/tree/dqn can be used with DQN-in-the-Caffe
-- Arcade Learning Environment
-- etc.
+https://github.com/mhauskn/recurrent-caffe/tree/recurrent
 
-Algorithm Details
---
+NOTE: Be sure to checkout the recurrent branch of the above repo (not the master).
 
-See http://www.cs.toronto.edu/~vmnih/docs/dqn.pdf for the details of DQN.
+Sample training command:
 
-Demo
---
-
-https://www.youtube.com/watch?v=p88R2_3yWPA
+./dqn -save test_run -rom pong.bin -unroll=1 -alsologtostderr
