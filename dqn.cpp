@@ -16,6 +16,8 @@
 
 namespace dqn {
 
+DEFINE_int32(loss_display_iter, 1000, "Frequency of loss display");
+
 void SaveInputFrame(const dqn::FrameData& frame, const string filename) {
   std::ofstream ofs;
   ofs.open(filename, ios::out | ios::binary);
@@ -581,7 +583,8 @@ DQN::DQN(const ActionVect& legal_actions,
     unroll_(unroll),
     frames_per_timestep_(frames_per_timestep),
     minibatch_size_(minibatch_size),
-    random_engine(0)
+  random_engine(0),
+  smoothed_loss_(0)
 {
   last_clone_iter_ = 0;
   replay_memory_size_ = 0;
@@ -1013,10 +1016,18 @@ int DQN::UpdateRandom() {
   InputDataIntoLayers(*net_, frame_input.data(), cont_input.data(),
                       target_input.data(), filter_input.data());
   solver_->Step(1);
+  // Get loss and maybe display it
   CHECK(net_->has_blob("loss"));
   const auto loss_blob = net_->blob_by_name("loss");
   CHECK_EQ(loss_blob->count(), 1);
-  CHECK(!std::isinf(loss_blob->data_at(0,0,0,0)));
+  float loss = loss_blob->data_at(0,0,0,0);
+  CHECK(!std::isinf(loss));
+  if (current_iteration() % FLAGS_loss_display_iter == 0) {
+    LOG(INFO) << "Iteration " << current_iteration()
+              << ", loss = " << smoothed_loss_;
+    smoothed_loss_ = 0;
+  }
+  smoothed_loss_ += loss / float(FLAGS_loss_display_iter);
   return 1;
 }
 

@@ -182,7 +182,7 @@ protected:
   NetSp clone_net_; // Clone used to generate targets.
   int last_clone_iter_; // Iteration in which the net was last cloned
   std::mt19937 random_engine;
-
+  float smoothed_loss_;
   std::vector<uint8_t> last_displayed_screen_; // Used in RedisplayScreen
 };
 
