@@ -32,7 +32,6 @@ DEFINE_int32(unroll, 10, "RNN iterations to unroll");
 DEFINE_int32(minibatch, 32, "Minibatch size");
 DEFINE_int32(frames_per_timestep, 4, "Frames given to agent at each timestep");
 DEFINE_string(save_screen, "", "File prefix in to save frames");
-DEFINE_string(save_binary_screen, "", "File prefix in to save binary frames");
 DEFINE_string(weights, "", "The pretrained weights load (*.caffemodel).");
 DEFINE_string(snapshot, "", "The solver state to load (*.solverstate).");
 DEFINE_bool(resume, true, "Automatically resume training from latest snapshot.");
@@ -93,14 +92,12 @@ double PlayOneEpisode(ALEInterface& ale, dqn::DQN& dqn, const double epsilon,
     }
     past_frames.push_back(current_frame);
     if (!FLAGS_save_screen.empty()) {
-      std::stringstream ss;
-      ss << FLAGS_save_screen << setfill('0') << setw(5) <<
-          std::to_string(frame) << ".png";
-      ale.saveScreenPNG(ss.str());
-    }
-    if (!FLAGS_save_binary_screen.empty()) {
+      static int screen_save_num = 0;
+      string fname = FLAGS_save_screen +
+          std::to_string(screen_save_num++) + ".png";
+      ale.saveScreenPNG(fname);
       static int binary_save_num = 0;
-      string fname = FLAGS_save_binary_screen +
+      fname = FLAGS_save_screen +
           std::to_string(binary_save_num++) + ".bin";
       SaveInputFrame(*current_frame, fname);
     }
